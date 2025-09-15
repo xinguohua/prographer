@@ -46,13 +46,7 @@ data_handler.load()
 # 【修改】更新返回值解包，接收新增的complete_nodes_per_graph和labels_per_graph
 G_snapshots, complete_nodes_per_graph, labels_per_graph = data_handler.build_graph()
 print(f"总共生成了 {len(G_snapshots)} 个快照。")
-#print("features:", features)
-#print("edges:", edges)
-#print("mapp:", mapp)
-#print("relations:", relations)
-#for i, snapshot in enumerate(G_snapshots):
-# print(f"\n--- 快照 {i+1} ---")
-# print(snapshot) # 单独打印每一个 snapshot 对象
+
 #嵌入构造特征向量
 embedder_class = get_embedder_by_name("prographer")
 # 【修改】传递序列长度参数到embedder

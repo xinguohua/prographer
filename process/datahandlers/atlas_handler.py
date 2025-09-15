@@ -314,15 +314,19 @@ class ATLASHandler(BaseProcessor):
         out_path = "snapshot_nodes.txt"
         with open(out_path, "w", encoding="utf-8") as f:
             for snapshot_idx, nodes in self.snapshot_to_nodes_map.items():
-                f.write(f"=== Snapshot {snapshot_idx} ===\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"[Snapshot {snapshot_idx}]\n")
+                f.write("=" * 50 + "\n\n")
+
                 for node in nodes:
                     name = node.get("name", "<NA>")
-                    f.write(f"Node: {name}\n")
+                    f.write(f"--- Node: {name} ---\n")
                     for k, v in node.items():
                         if k != "name":
-                            f.write(f"    {k}: {v}\n")
-                    f.write("\n")
-                f.write("\n")
+                            f.write(f"    {k:<15}: {v}\n")
+                    f.write("\n")  # 节点之间空一行
+
+                f.write("\n")  # 快照之间空两行
         print(f"[INFO] 已保存快照-节点映射到: {out_path}")
 
 
