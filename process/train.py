@@ -8,6 +8,9 @@ import torch
 from datahandlers import get_handler
 from embedders import get_embedder_by_name
 from process.match.match import train_model
+import platform
+import yaml
+
 from process.partition import detect_communities
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -19,9 +22,21 @@ TEST_WINDOW = 20           # 测试窗口分钟数，可以修改
 
 print(f"训练参数: 序列长度={SEQUENCE_LENGTH}, 恶意窗口={MALICIOUS_WINDOW}分钟, 测试窗口={TEST_WINDOW}分钟")
 
+with open("config.yaml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+
+system = platform.system().lower()
+if "windows" in system:
+    env_config = config["local"]
+else:
+    env_config = config["remote"]
+
+PATH_MAP = env_config["path_map"]
+MALICIOUS_INTERVALS_PATH = env_config["malicious_intervals"]
+
 # 获取数据集
 # 【修改】使用参数指定时间戳的数据分割
-data_handler = get_handler("atlas", True, use_time_split=True,
+data_handler = get_handler("atlas", True, PATH_MAP, MALICIOUS_INTERVALS_PATH, use_time_split=True,
                           test_window_minutes=TEST_WINDOW)
 # data_handler = get_handler("theia", True)
 
@@ -29,7 +44,7 @@ data_handler = get_handler("atlas", True, use_time_split=True,
 data_handler.load()
 # 成整个大图+捕捉特征语料+简化策略这里添加
 # 【修改】更新返回值解包，接收新增的complete_nodes_per_graph和labels_per_graph
-features, edges, mapp, relations, G_snapshots, snapshot_to_graph_map, graph_names_in_order, complete_nodes_per_graph, labels_per_graph = data_handler.build_graph()
+G_snapshots, complete_nodes_per_graph, labels_per_graph = data_handler.build_graph()
 print(f"总共生成了 {len(G_snapshots)} 个快照。")
 #print("features:", features)
 #print("edges:", edges)
