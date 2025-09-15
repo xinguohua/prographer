@@ -117,7 +117,7 @@ class ProGrapherEmbedder(GraphEmbedderBase):
             total_loss = 0
             num_updates = 0
             shuffled_indices = np.random.permutation(num_snapshots)
-
+            # RSG SNAPSHOT
             for snapshot_idx in tqdm(shuffled_indices, desc=f"Encoder Epoch {epoch+1}/{self.epochs}", leave=False):
                 snapshot = self.snapshot_sequence[snapshot_idx]
                 positive_rsg_ids = {
