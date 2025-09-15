@@ -1,3 +1,3 @@
-/users/aalsahee/appdata/local/iconcache.db,26519800,26519912
-192.168.223.3,30700000,30750000
-payload.exe,30700000,30750000
+/users/aalsahee/appdata/local/iconcache.db,26519800,26519812
+192.168.223.3,30731642,30732000
+payload.exe,30731787,30731910

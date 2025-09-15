@@ -21,8 +21,7 @@ print(f"训练参数: 序列长度={SEQUENCE_LENGTH}, 恶意窗口={MALICIOUS_WI
 
 # 获取数据集
 # 【修改】使用参数指定时间戳的数据分割
-data_handler = get_handler("atlas", True, use_time_split=True, 
-                          malicious_window_minutes=MALICIOUS_WINDOW, 
+data_handler = get_handler("atlas", True, use_time_split=True,
                           test_window_minutes=TEST_WINDOW)
 # data_handler = get_handler("theia", True)
 

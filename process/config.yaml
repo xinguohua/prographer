@@ -1,0 +1,13 @@
+dev:
+  base_path: "./data/local"
+  db:
+    host: "localhost"
+    port: 3306
+  log_level: "DEBUG"
+
+prod:
+  base_path: "/mnt/data"
+  db:
+    host: "10.0.0.1"
+    port: 3306
+  log_level: "INFO"

@@ -107,6 +107,7 @@ class ATLASHandler(BaseProcessor):
         self.total_loaded_bytes = 0
         self.graph_to_nodes_map = {}
         self.snapshot_to_nodes_map = {}
+        self.node_frequency = {}
         # 【新增】时间分割相关参数
         self.use_time_split = use_time_split
         self.test_window_minutes = test_window_minutes
@@ -178,11 +179,12 @@ class ATLASHandler(BaseProcessor):
 
 
     def build_graph(self):
-        """【重构 & 最终修复】生成快照，并在节点创建时打标，同时记录所有出现过的节点以供评估。"""
+        """ 生成快照，并在节点创建时打标，同时记录所有出现过的节点以供评估。"""
         self.snapshots = []
         self.snapshot_to_graph_map = []
         self.graph_to_nodes_map = {}
         self.snapshot_to_nodes_map = {}
+        self.node_frequency = {}
 
         for graph_name in self.graph_names_in_order:
             print(f"\n--- 正在为图 '{graph_name}' 构建快照 ---")
@@ -204,7 +206,7 @@ class ATLASHandler(BaseProcessor):
                         # 1. 加载恶意区间
                         label_intervals = load_malicious_intervals("/home/nsas2020/fuzz/prographer/malicious_intervals.txt")
                         # 2. 拆分数据
-                        train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=3.0)
+                        train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=1.0)
                         print(f"  - 分割结果 - 训练集: {len(train_df)} 条边, 测试集: {len(test_df)} 条边")
                         
                         # 保存分割后的数据集到文件
@@ -240,6 +242,8 @@ class ATLASHandler(BaseProcessor):
                 action, timestamp = row["action"], row.get('timestamp', 0)
                 current_graph_all_nodes.add(actor_id)
                 current_graph_all_nodes.add(object_id)
+                self.node_frequency[actor_id] = self.node_frequency.get(actor_id, 0) + 1
+                self.node_frequency[object_id] = self.node_frequency.get(object_id, 0) + 1
 
                 target_node = "192.168.223.3"
                 current_snapshot_idx = len(self.snapshots)  # 已经生成的快照数，0-based
@@ -249,25 +253,28 @@ class ATLASHandler(BaseProcessor):
                     print(
                         f"[DEBUG] {timestamp}: 节点 {target_node} 出现在边 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
                 try:
-                    self.cache_graph.vs.find(name=actor_id)
+                    v_actor = self.cache_graph.vs.find(name=actor_id)
+                    v_actor["frequency"] = self.node_frequency[actor_id]
                 except ValueError:
                     actor_type_enum = ObjectType[row['actor_type']]
                     self.cache_graph.add_vertex(
                         name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
                         properties=extract_properties(actor_id, row, action, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
-                        label=int(actor_id in self.all_labels)
+                        label=int(actor_id in self.all_labels),
+                        frequency = self.node_frequency[actor_id]
                     )
                 self.node_timestamps[actor_id] = timestamp
                 try:
-                    self.cache_graph.vs.find(name=object_id)
+                    v_objctor = self.cache_graph.vs.find(name=object_id)
+                    v_objctor["frequency"] = self.node_frequency[object_id]
                 except ValueError:
                     object_type_enum = ObjectType[row['object']]
                     self.cache_graph.add_vertex(
                         name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
                         properties=extract_properties(object_id, row, action, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
-                        label=int(object_id in self.all_labels)
+                        label=int(object_id in self.all_labels),
+                        frequency=self.node_frequency[actor_id]
                     )
-                self.node_timestamps[object_id] = timestamp
                 self.node_timestamps[object_id] = timestamp
 
                 actor_idx, object_idx = self.cache_graph.vs.find(name=actor_id).index, self.cache_graph.vs.find(name=object_id).index # 获取 actor 和 object 节点在图中的整数索引（index）
@@ -382,7 +389,7 @@ class ATLASHandler(BaseProcessor):
         return label_timestamps
 
     def split_dataframe_by_time(self, df: pd.DataFrame, label_intervals: dict,
-                                buffer_ratio: float = 3.0):
+                                buffer_ratio: float = 1.0):
         """
         根据恶意时间区间划分数据：
         - train_df : 远离恶意区间的良性数据

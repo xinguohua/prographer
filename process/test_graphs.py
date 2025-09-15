@@ -1,19 +1,19 @@
-import io
 import os
 import sys
+import yaml
+import textwrap  # 导入 textwrap 以便格式化长文本
+from collections import defaultdict
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from tqdm import tqdm
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from collections import defaultdict
-import textwrap # 导入 textwrap 以便格式化长文本
+from tqdm import tqdm
 
 # --- 1. 设置和导入 ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from process.datahandlers import get_handler
-from process.embedders import get_embedder_by_name, ProGrapherEmbedder
+from process.embedders import ProGrapherEmbedder
 
 # --- 2. 模型定义 (不变) ---
 class AnomalyDetector(nn.Module):
@@ -439,7 +439,7 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path,
         print("错误: 未能构建任何快照。")
         return
         
-    # 【新增】保存快照节点信息到文件
+    # 保存快照节点信息到文件
     save_snapshot_nodes_to_file(all_snapshots)
     
     true_labels = get_true_snapshot_labels(all_snapshots)
@@ -516,7 +516,17 @@ if __name__ == '__main__':
     # ENCODER_MODEL_PATH = "D:/prographer/process/prographer_encoder.pth"
     DETECTOR_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_detector.pth"
     ENCODER_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_encoder.pth"
-    
+
+    env = "local"  # 改成 "remote" 就行
+
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        config_all = yaml.safe_load(f)
+
+    config = config_all[env]  # 加载对应环境配置
+
+    print(f"当前环境: {env}")
+    print("配置内容:", config)
+
     # 【新增】可自定义的参数
     SEQUENCE_LENGTH = 7        # 序列长度，可以修改
     TEST_WINDOW = 20           # 测试窗口分钟数，可以修改
