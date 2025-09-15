@@ -124,7 +124,7 @@ class DARPAHandler(BaseProcessor):
         nodes_props, nodes_type, edges_map = {}, {}, {}
 
         # === 新增：快照生成相关变量 ===
-        snapshot_size = 300
+        snapshot_size = 500
         forgetting_rate = 0.3
         self.cache_graph = ig.Graph(directed=True)
         self.node_timestamps = {}

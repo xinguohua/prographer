@@ -36,6 +36,34 @@ def collect_nodes_from_log(paths):
         elif node_type == 'file': file2pro[node_id] = node_id
     return netobj2pro, subject2pro, file2pro, domain_name_set, ip_set, connection_set, session_set, web_object_set
 
+def load_malicious_intervals(filepath: str):
+    """
+    从 malicious_intervals.txt 读取恶意时间区间
+    格式: label,start,end
+    返回: {label: [(start, end), ...], ...}
+    """
+    intervals = {}
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",")
+            if len(parts) != 3:
+                raise ValueError(f"格式错误: {line}")
+
+            label = parts[0]
+            start, end = map(int, parts[1:3])
+
+            if label not in intervals:
+                intervals[label] = []
+            intervals[label].append((start, end))
+
+    print(f"[INFO] 已加载 {len(intervals)} 个恶意实体")
+    for k, v in intervals.items():
+        print(f"  - {k}: {v}")
+    return intervals
+
 def collect_edges_from_log(paths, domain_name_set, ip_set, connection_set, session_set, web_object_set, subject2pro, file2pro) -> pd.DataFrame:
     edges = []
     with open(paths, "r", encoding="utf-8") as f:
@@ -78,7 +106,7 @@ class ATLASHandler(BaseProcessor):
         self.all_file2pro = {}
         self.total_loaded_bytes = 0
         self.graph_to_nodes_map = {}
-        
+        self.snapshot_to_nodes_map = {}
         # 【新增】时间分割相关参数
         self.use_time_split = use_time_split
         self.test_window_minutes = test_window_minutes
@@ -125,7 +153,7 @@ class ATLASHandler(BaseProcessor):
             # 将当前图的标签列表（可能为空）存入字典
             self.graph_to_label[dot_name] = graph_specific_labels
 
-          #从当前的 .dot 文件中解析出所有的节点和边信息。
+            #从当前的 .dot 文件中解析出所有的节点和边信息。
             netobj2pro, subject2pro, file2pro, dns, ips, conns, sess, webs = collect_nodes_from_log(dot_file)
             df = collect_edges_from_log(dot_file, dns, ips, conns, sess, webs, subject2pro, file2pro)
 
@@ -135,6 +163,11 @@ class ATLASHandler(BaseProcessor):
             merge_properties(subject2pro, self.all_subject2pro)
             merge_properties(file2pro, self.all_file2pro)
 
+            out_path = f"{dot_name}.csv"
+            df.to_csv(out_path, index=False, encoding="utf-8")
+            print(f"[INFO] 已保存 {dot_name} 的 DataFrame 到 {out_path}, 共 {len(df)} 行")
+
+
         # 将所有恶意标签去重（全局列表）
         self.all_labels = list(set(self.all_labels))
         print(f"所有 {len(self.graph_names_in_order)} 个图的数据加载完毕。")
@@ -142,11 +175,14 @@ class ATLASHandler(BaseProcessor):
             # 这个打印现在反映的是当前加载批次的所有唯一恶意标签总数
             print(f"共找到 {len(self.all_labels)} 个唯一的恶意实体标签用于本次评估。")
 
+
+
     def build_graph(self):
         """【重构 & 最终修复】生成快照，并在节点创建时打标，同时记录所有出现过的节点以供评估。"""
         self.snapshots = []
         self.snapshot_to_graph_map = []
         self.graph_to_nodes_map = {}
+        self.snapshot_to_nodes_map = {}
 
         for graph_name in self.graph_names_in_order:
             print(f"\n--- 正在为图 '{graph_name}' 构建快照 ---")
@@ -165,7 +201,10 @@ class ATLASHandler(BaseProcessor):
                         os.path.join(self.base_path, f"{graph_name}.dot"), labels
                     )
                     if label_timestamps:
-                        train_df, test_df= self.split_dataframe_by_time(df, label_timestamps)
+                        # 1. 加载恶意区间
+                        label_intervals = load_malicious_intervals("/home/nsas2020/fuzz/prographer/malicious_intervals.txt")
+                        # 2. 拆分数据
+                        train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=3.0)
                         print(f"  - 分割结果 - 训练集: {len(train_df)} 条边, 测试集: {len(test_df)} 条边")
                         
                         # 保存分割后的数据集到文件
@@ -193,11 +232,22 @@ class ATLASHandler(BaseProcessor):
             self.first_flag = True
             sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
 
+            out_path = "sorted_df.csv"
+            sorted_df.to_csv(out_path, index=False, encoding="utf-8")
+            print(f"[INFO] 已保存 sorted_df 的 DataFrame 到 {out_path}, 共 {len(df)} 行")
             for _, row in sorted_df.iterrows():
                 actor_id, object_id = row["actorID"], row["objectID"]
                 action, timestamp = row["action"], row.get('timestamp', 0)
                 current_graph_all_nodes.add(actor_id)
                 current_graph_all_nodes.add(object_id)
+
+                target_node = "192.168.223.3"
+                current_snapshot_idx = len(self.snapshots)  # 已经生成的快照数，0-based
+                # print(f"[DEBUG] {timestamp}: 节点 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
+
+                if target_node in str(actor_id) or target_node in str(object_id):
+                    print(
+                        f"[DEBUG] {timestamp}: 节点 {target_node} 出现在边 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
                 try:
                     self.cache_graph.vs.find(name=actor_id)
                 except ValueError:
@@ -251,6 +301,23 @@ class ATLASHandler(BaseProcessor):
 
         print("图构建和打标流程全部完成。")
         # 【修改】返回新增的 graph_to_label 字典
+
+        # === 新增：把每个快照的节点 name+属性写到 TXT ===
+        out_path = "snapshot_nodes.txt"
+        with open(out_path, "w", encoding="utf-8") as f:
+            for snapshot_idx, nodes in self.snapshot_to_nodes_map.items():
+                f.write(f"=== Snapshot {snapshot_idx} ===\n")
+                for node in nodes:
+                    name = node.get("name", "<NA>")
+                    f.write(f"Node: {name}\n")
+                    for k, v in node.items():
+                        if k != "name":
+                            f.write(f"    {k}: {v}\n")
+                    f.write("\n")
+                f.write("\n")
+        print(f"[INFO] 已保存快照-节点映射到: {out_path}")
+
+
         return self.snapshots,  self.graph_to_nodes_map, self.graph_to_label
 
     def _retire_old_nodes(self, snapshot_size: int, forgetting_rate: float) -> None:
@@ -273,6 +340,14 @@ class ATLASHandler(BaseProcessor):
         snapshot = self.cache_graph.copy()
         self.snapshots.append(snapshot)
         self.snapshot_to_graph_map.append(graph_name)
+        snapshot_idx = len(self.snapshots) - 1
+        self.snapshot_to_nodes_map[snapshot_idx] = [
+            {
+                "name": v['name'],
+                **{k: v[k] for k in v.attributes()}  # 把该节点所有属性也一起存进去
+            }
+            for v in snapshot.vs
+        ]
 
     def extract_label_timestamps(self, dot_file_path: str, labels: list) -> dict:
         """从.dot文件中提取恶意标签的首次出现时间戳"""
@@ -305,42 +380,55 @@ class ATLASHandler(BaseProcessor):
         
         print(f"提取到的标签时间戳: {label_timestamps}")
         return label_timestamps
-    
-    def split_dataframe_by_time(self, df: pd.DataFrame, label_timestamps: dict) -> tuple:
-        """根据恶意标签时间戳将DataFrame分割为训练集、测试集和恶意集"""
-        if not label_timestamps:
-            return df, pd.DataFrame(), pd.DataFrame()
-        
-        all_malicious_times = list(label_timestamps.values())
-        earliest_malicious = min(all_malicious_times)
-        latest_malicious = max(all_malicious_times)
-        
-        print(f"恶意事件时间范围: {earliest_malicious} - {latest_malicious}")
-        
-        # 测试集窗口：恶意事件前后各test_window_seconds秒
-        test_start = earliest_malicious - self.test_window_seconds
-        test_end = latest_malicious + self.test_window_seconds
 
+    def split_dataframe_by_time(self, df: pd.DataFrame, label_intervals: dict,
+                                buffer_ratio: float = 3.0):
+        """
+        根据恶意时间区间划分数据：
+        - train_df : 远离恶意区间的良性数据
+        - test_df  : 恶意数据 + 恶意区间附近的良性数据
 
-        
-        print(f"测试集时间窗口: {test_start} - {test_end}")
+        buffer = 恶意区间宽度 × buffer_ratio
 
-        
-        # 创建时间过滤掩码
-        test_mask = (df['timestamp'] >= test_start) & (df['timestamp'] <= test_end)
+        参数:
+            df : 原始 DataFrame，必须包含 'timestamp'
+            label_intervals : {label: [(start, end), ...]}
+            buffer_ratio : buffer 与恶意区间宽度的比例 (默认 3.0)
+        返回:
+            train_df, test_df
+        """
+        df = df.copy()
+        df["is_malicious"] = 0
 
-        train_mask = ~test_mask  # 训练集：不在测试窗口内的数据
-        
-        # 应用掩码生成分割后的数据集
-        train_df = df[train_mask].copy()
-        test_df = df[test_mask].copy()
+        mal_mask = pd.Series(False, index=df.index)
+        test_mask = pd.Series(False, index=df.index)
 
-        
-        print(f"数据分割结果:")
-        print(f"  - 训练集: {len(train_df)} 条边")
-        print(f"  - 测试集: {len(test_df)} 条边")
+        # 遍历每个 label 的多个时间区间
+        for label, intervals in label_intervals.items():
+            for (start, end) in intervals:
+                width = end - start
+                buffer = int(width * buffer_ratio)
 
-        
+                # 恶意区间
+                mal_mask |= df["timestamp"].between(start, end, inclusive="both")
+
+                # 测试区间 = 恶意区间 ± buffer
+                test_start = start - buffer
+                test_end = end + buffer
+                test_mask |= df["timestamp"].between(test_start, test_end, inclusive="both")
+
+                print(f"[INFO] Label={label}, 恶意区间 {start}-{end} "
+                      f"(宽度={width}) -> buffer={buffer}, 测试区间 {test_start}-{test_end}")
+
+        # 标记恶意
+        df.loc[mal_mask, "is_malicious"] = 1
+
+        # 划分
+        test_df = df[test_mask].copy()  # 包含恶意 + 附近良性
+        train_df = df[~test_mask].copy()  # 远离恶意的纯良性
+
+        print(f"[RESULT] train={len(train_df)}, test={len(test_df)} (其中恶意={mal_mask.sum()})")
+
         return train_df, test_df
 
     def save_split_datasets(self, graph_name: str, train_df: pd.DataFrame, test_df: pd.DataFrame) -> None:
