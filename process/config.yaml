@@ -1,13 +1,9 @@
-dev:
-  base_path: "./data/local"
-  db:
-    host: "localhost"
-    port: 3306
-  log_level: "DEBUG"
+local:
+  DETECTOR_MODEL_PATH: "D:/prographer/process/prographer_detector.pth"
+  ENCODER_MODEL_PATH: "D:/prographer/process/prographer_encoder.pth"
+  malicious_intervals: "D:/prographer/malicious_intervals.txt"
 
-prod:
-  base_path: "/mnt/data"
-  db:
-    host: "10.0.0.1"
-    port: 3306
-  log_level: "INFO"
+remote:
+  DETECTOR_MODEL_PATH: "/home/nsas2020/fuzz/prographer/process/prographer_detector.pth"
+  ENCODER_MODEL_PATH: "/home/nsas2020/fuzz/prographer/process/prographer_encoder.pth"
+  malicious_intervals: "/home/nsas2020/fuzz/prographer/malicious_intervals.txt"

@@ -423,13 +423,15 @@ def print_debug_info(all_snapshots, eval_true, eval_pred, eval_start_idx):
 # =========================================================================
 # =================== 核心评估函数 (保持不变) ===========================
 # =========================================================================
-def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, 
+def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, MALICIOUS_INTERVALS_PATH,
                                   sequence_length=12,
-                                  test_window_minutes=20):
+                                  test_window_minutes=20,
+                                  ):
     """运行快照级别的异常检测评估 - 评估所有快照"""
     handler = get_handler(
         "atlas", 
-        False, 
+        False,
+        MALICIOUS_INTERVALS_PATH,
         use_time_split=True,
         test_window_minutes=test_window_minutes
     )
@@ -511,21 +513,17 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path,
 
 # --- 主程序入口 ---
 if __name__ == '__main__':
-    # 模型路径
-    # DETECTOR_MODEL_PATH = "D:/prographer/process/prographer_detector.pth"
-    # ENCODER_MODEL_PATH = "D:/prographer/process/prographer_encoder.pth"
-    DETECTOR_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_detector.pth"
-    ENCODER_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_encoder.pth"
-
-    env = "local"  # 改成 "remote" 就行
+    ENV = "local"  # 改成 "remote" 就行
 
     with open("config.yaml", "r", encoding="utf-8") as f:
         config_all = yaml.safe_load(f)
 
-    config = config_all[env]  # 加载对应环境配置
+    config = config_all[ENV]
 
-    print(f"当前环境: {env}")
-    print("配置内容:", config)
+    # 拿到路径
+    DETECTOR_MODEL_PATH = config["DETECTOR_MODEL_PATH"]
+    ENCODER_MODEL_PATH = config["ENCODER_MODEL_PATH"]
+    MALICIOUS_INTERVALS_PATH = config["malicious_intervals"]
 
     # 【新增】可自定义的参数
     SEQUENCE_LENGTH = 7        # 序列长度，可以修改
@@ -536,5 +534,5 @@ if __name__ == '__main__':
     if not os.path.exists(DETECTOR_MODEL_PATH): print(f"错误: 检测器模型文件不存在: {DETECTOR_MODEL_PATH}"); sys.exit(1)
     if not os.path.exists(ENCODER_MODEL_PATH): print(f"错误: 编码器模型文件不存在: {ENCODER_MODEL_PATH}\n提示: 请先运行 train.py 来训练并生成编码器模型。"); sys.exit(1)
     
-    run_snapshot_level_evaluation(DETECTOR_MODEL_PATH, ENCODER_MODEL_PATH, 
+    run_snapshot_level_evaluation(DETECTOR_MODEL_PATH, ENCODER_MODEL_PATH, MALICIOUS_INTERVALS_PATH,
                                  SEQUENCE_LENGTH,  TEST_WINDOW)

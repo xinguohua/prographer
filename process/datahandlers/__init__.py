@@ -16,8 +16,8 @@ path_map = {
     "cadets": "/home/nsas2020/fuzz/Flash-IDS/data_files/cadets",
     "clearscope": "/home/nsas2020/fuzz/Flash-IDS/data_files/clearscope",
     "trace": "/home/nsas2020/fuzz/Flash-IDS/data_files/trace",
-   "atlas": "/mnt/bigdata/aptdata/atlas_data",
-    # "atlas": "D:/atlas_data_short",
+   #"atlas": "/mnt/bigdata/aptdata/atlas_data",
+     "atlas": "D:/atlas_data_short",
 }
 
 def get_handler(name, train, use_time_split=False, **kwargs):

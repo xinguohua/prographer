@@ -88,9 +88,10 @@ def collect_edges_from_log(paths, domain_name_set, ip_set, connection_set, sessi
 
 
 class ATLASHandler(BaseProcessor):
-    def __init__(self, base_path=None, train=True, use_time_split=False, test_window_minutes=20):
+    def __init__(self, base_path=None, train=True, MALICIOUS_INTERVALS_PATH = None, use_time_split=False, test_window_minutes=20):
         """【修改】初始化用于图级别追踪的变量"""
         super().__init__(base_path, train)
+        self.MALICIOUS_INTERVALS_PATH = MALICIOUS_INTERVALS_PATH
         # 用于存储每个图(dot文件)的DataFrame
         self.all_dfs_map = {}
         # 用于存储图(dot文件)被处理的顺序
@@ -204,7 +205,7 @@ class ATLASHandler(BaseProcessor):
                     )
                     if label_timestamps:
                         # 1. 加载恶意区间
-                        label_intervals = load_malicious_intervals("/home/nsas2020/fuzz/prographer/malicious_intervals.txt")
+                        label_intervals = load_malicious_intervals("D:/prographer/malicious_intervals.txt")
                         # 2. 拆分数据
                         train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=1.0)
                         print(f"  - 分割结果 - 训练集: {len(train_df)} 条边, 测试集: {len(test_df)} 条边")
