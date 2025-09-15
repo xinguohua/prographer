@@ -512,10 +512,10 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path,
 # --- 主程序入口 ---
 if __name__ == '__main__':
     # 模型路径
-    # DETECTOR_MODEL_PATH = "D:/prographer/process/prographer_detector.pth"
-    # ENCODER_MODEL_PATH = "D:/prographer/process/prographer_encoder.pth"
-    DETECTOR_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_detector.pth"
-    ENCODER_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_encoder.pth"
+    DETECTOR_MODEL_PATH = "D:/prographer/process/prographer_detector.pth"
+    ENCODER_MODEL_PATH = "D:/prographer/process/prographer_encoder.pth"
+    #DETECTOR_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_detector.pth"
+    #ENCODER_MODEL_PATH = "/home/nsas2020/fuzz/prographer/process/prographer_encoder.pth"
     
     # 【新增】可自定义的参数
     SEQUENCE_LENGTH = 7        # 序列长度，可以修改

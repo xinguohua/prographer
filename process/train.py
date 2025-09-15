@@ -13,16 +13,14 @@ from process.partition import detect_communities
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 【新增】可自定义的训练参数
-SEQUENCE_LENGTH = 12        # 序列长度，可以修改
-MALICIOUS_WINDOW = 10       # 恶意窗口分钟数，可以修改  
+SEQUENCE_LENGTH = 7        # 序列长度，可以修改
 TEST_WINDOW = 20           # 测试窗口分钟数，可以修改
 
-print(f"训练参数: 序列长度={SEQUENCE_LENGTH}, 恶意窗口={MALICIOUS_WINDOW}分钟, 测试窗口={TEST_WINDOW}分钟")
+print(f"训练参数: 序列长度={SEQUENCE_LENGTH}, 测试窗口={TEST_WINDOW}分钟")
 
 # 获取数据集
 # 【修改】使用参数指定时间戳的数据分割
-data_handler = get_handler("atlas", True, use_time_split=True, 
-                          malicious_window_minutes=MALICIOUS_WINDOW, 
+data_handler = get_handler("atlas", True, use_time_split=True,
                           test_window_minutes=TEST_WINDOW)
 # data_handler = get_handler("theia", True)
 
@@ -30,7 +28,7 @@ data_handler = get_handler("atlas", True, use_time_split=True,
 data_handler.load()
 # 成整个大图+捕捉特征语料+简化策略这里添加
 # 【修改】更新返回值解包，接收新增的complete_nodes_per_graph和labels_per_graph
-features, edges, mapp, relations, G_snapshots, snapshot_to_graph_map, graph_names_in_order, complete_nodes_per_graph, labels_per_graph = data_handler.build_graph()
+G_snapshots, complete_nodes_per_graph, labels_per_graph = data_handler.build_graph()
 print(f"总共生成了 {len(G_snapshots)} 个快照。")
 #print("features:", features)
 #print("edges:", edges)

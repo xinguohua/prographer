@@ -202,7 +202,7 @@ class ATLASHandler(BaseProcessor):
                     )
                     if label_timestamps:
                         # 1. 加载恶意区间
-                        label_intervals = load_malicious_intervals("/home/nsas2020/fuzz/prographer/malicious_intervals.txt")
+                        label_intervals = load_malicious_intervals("D:/prographer/malicious_intervals.txt")
                         # 2. 拆分数据
                         train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=3.0)
                         print(f"  - 分割结果 - 训练集: {len(train_df)} 条边, 测试集: {len(test_df)} 条边")
