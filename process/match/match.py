@@ -6,9 +6,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import numpy as np
-from tqdm import tqdm
 import os
+from torch.utils.data import TensorDataset, DataLoader
+from tqdm import tqdm
+from collections import OrderedDict
+
 
 # =============================================================================
 #  1. 定义 ProGrapher 的异常检测器 (Anomaly Detector)
@@ -61,68 +63,58 @@ class AnomalyDetector(nn.Module):
 #  2. 训练模型的主函数 (兼容旧的调用签名)
 # =============================================================================
 def train_model(
-        snapshots,          # 函数内部不再使用
         snapshot_embeddings,
-        rsg_embeddings,     # 函数内部不再使用
-        rsg_vocab,          # 函数内部不再使用
-        # --- 使用论文中定义的超参数，并加入 TextRCNN 特有的参数 ---
-        sequence_length_L=12, #序列长度
-        embedding_dim=256, #嵌入维度
-        hidden_dim=128, # 隐藏层维度
-        num_layers=5,  #LSTM层数
-        dropout_rate=0.2, #Dropout比率
-        # --- 新增的 TextRCNN 参数，提供默认值 ---
-        kernel_sizes=[3, 4, 5],  #卷积核尺寸
-        num_filters=100,  #滤波器数量
-        # --- 其他训练超参数 ---
-        seq_lr=3e-4,  #学习率
-        seq_epochs=30, #训练周期数
-        batch_size=32, #批处理大小
-        # --- 模型保存路径参数 ---
-        model_save_path="prographer_detector.pth" # 使用一个明确的默认路径
+        sequence_length_L=12,
+        embedding_dim=256,
+        hidden_dim=128,
+        num_layers=5,
+        dropout_rate=0.2,
+        kernel_sizes=[3, 4, 5],
+        num_filters=100,
+        seq_lr=3e-4,
+        seq_epochs=30,
+        batch_size=32,
+        model_save_path="prographer_detector.pth"
 ):
     """
-    实现了 ProGrapher 的异常检测器训练 (TextRCNN 版本)。
-    这个函数签名兼容旧的调用方式，无需修改调用方代码。
-
-    Args:
-        snapshots, rsg_embeddings, rsg_vocab: 为了兼容性而保留，但不再使用。
-        snapshot_embeddings (np.array): 编码器输出的快照嵌入。
-        sequence_length_L (int): 序列长度，默认12
-        ... (其他超参数)
+    ProGrapher 的异常检测器训练 (TextRCNN 版本)。
+    训练完成后只保存最优模型参数 (state_dict)，返回模型和训练历史。
     """
-    
+
     print(f"训练使用序列长度: {sequence_length_L}")
     print(f"模型参数: 嵌入维度={embedding_dim}, 隐藏维度={hidden_dim}")
     print(f"LSTM层数={num_layers}, Dropout={dropout_rate}")
     print(f"卷积核大小={kernel_sizes}, 滤波器数={num_filters}")
     print("-" * 50)
-    
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"\n--- ProGrapher 训练后端运行在: {device} ---")
-    print("\n--- 阶段一：训练序列异常检测器 (TextRCNN) ---")
 
-    # 1. 准备数据
-    snapshot_embeddings_tensor = torch.tensor(snapshot_embeddings, dtype=torch.float32) #转为张量
-    if len(snapshot_embeddings_tensor) <= sequence_length_L:  #数据处理
-        print(f"错误：快照数量 ({len(snapshot_embeddings_tensor)}) 不足以构成一个长度为 {sequence_length_L} 的序列。")
-        return
+    # ========== 1. 数据准备 ==========
+    snapshot_embeddings_tensor = torch.tensor(snapshot_embeddings, dtype=torch.float32)
 
-    sequences, targets = [], []  #sequences存放模型的输入，tragets存放真实标签
-    for i in range(len(snapshot_embeddings_tensor) - sequence_length_L):  #滑动窗口
-        sequences.append(snapshot_embeddings_tensor[i : i + sequence_length_L]) #取出长度为L的片段作为输入序列
-        targets.append(snapshot_embeddings_tensor[i + sequence_length_L]) #获得真实序列
+    if snapshot_embeddings_tensor.size(0) <= sequence_length_L:
+        raise ValueError(f"快照数量 {len(snapshot_embeddings_tensor)} 不足以构成一个长度为 {sequence_length_L} 的序列")
 
-    if not sequences:
-        print("错误：无法创建任何训练序列。")
-        return
+    def make_windows(x, L):
+        seqs, tars = [], []
+        for i in range(len(x) - L):
+            seqs.append(x[i: i + L])
+            tars.append(x[i + L])
+        return torch.stack(seqs), torch.stack(tars)
 
-    print(f"成功创建 {len(sequences)} 个训练序列。")
+    split_idx = int(0.8 * len(snapshot_embeddings_tensor))
+    train_arr, val_arr = snapshot_embeddings_tensor[:split_idx], snapshot_embeddings_tensor[split_idx:]
 
-    dataset = torch.utils.data.TensorDataset(torch.stack(sequences), torch.stack(targets))
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    train_x, train_y = make_windows(train_arr, sequence_length_L)
+    val_x, val_y = make_windows(val_arr, sequence_length_L)
 
-    # 2. 初始化模型、优化器和损失函数
+    train_loader = DataLoader(TensorDataset(train_x, train_y), batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(TensorDataset(val_x, val_y), batch_size=batch_size, shuffle=False)
+
+    print(f"训练集样本数: {len(train_x)}, 验证集样本数: {len(val_x)}")
+
+    # ========== 2. 初始化模型、优化器和损失函数 ==========
     detector_model = AnomalyDetector(
         embedding_dim=embedding_dim,
         hidden_dim=hidden_dim,
@@ -130,41 +122,80 @@ def train_model(
         dropout=dropout_rate,
         kernel_sizes=kernel_sizes,
         num_filters=num_filters
-    ).to(device)  #创建一个AnomalyDetector
+    ).to(device)
 
-    optimizer = optim.Adam(detector_model.parameters(), lr=seq_lr) #创建Adam优化器
-    criterion = nn.MSELoss()  #MSEloss，比较真实与预测之间的差异
+    optimizer = optim.Adam(detector_model.parameters(), lr=seq_lr)
+    criterion = nn.MSELoss()
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min",
+                                                     factor=0.5, patience=3, verbose=True)
 
-    # 3. 训练循环
-    detector_model.train()
+    scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
+
+    # ========== 3. 训练循环 ==========
+    best_val_loss = float("inf")
+    best_state = OrderedDict((k, v.cpu()) for k, v in detector_model.state_dict().items())
+    patience, bad_epochs = 5, 0
+    history = {"train_loss": [], "val_loss": []}
+
     for epoch in range(seq_epochs):
-        total_loss = 0
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{seq_epochs}", leave=True)
-        for seq_batch, target_batch in progress_bar: #从 dataloader 中一次取出一批（batch）数据
-            seq_batch, target_batch = seq_batch.to(device), target_batch.to(device) # 将这一批数据也移动到指定的设备（CPU或GPU）
+        # ---- 训练 ----
+        detector_model.train()
+        train_loss = 0.0
+        for seq_batch, target_batch in tqdm(train_loader, desc=f"Train {epoch+1}/{seq_epochs}", leave=False):
+            seq_batch, target_batch = seq_batch.to(device), target_batch.to(device)
 
-            optimizer.zero_grad()  #在计算新的梯度之前，必须清除上一步留下的旧梯度。
-            predicted_batch = detector_model(seq_batch) #将一批输入序列喂给模型，得到一批预测结果。
-            loss = criterion(predicted_batch, target_batch)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+                pred = detector_model(seq_batch)
+                loss = criterion(pred, target_batch)
 
-            total_loss += loss.item()
-            progress_bar.set_postfix(loss=f"{loss.item():.4f}")
+            scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(detector_model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
+            train_loss += loss.item() * seq_batch.size(0)
 
-        avg_loss = total_loss / len(dataloader) if dataloader else 0
-        print(f"Epoch {epoch+1}/{seq_epochs}, Avg. MSE Loss: {avg_loss:.6f}")
+        train_loss /= len(train_x)
 
-    print("异常检测器训练完成。")
+        # ---- 验证 ----
+        detector_model.eval()
+        val_loss = 0.0
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+            for seq_batch, target_batch in val_loader:
+                seq_batch, target_batch = seq_batch.to(device), target_batch.to(device)
+                pred = detector_model(seq_batch)
+                vloss = criterion(pred, target_batch)
+                val_loss += vloss.item() * seq_batch.size(0)
 
-    # 4. 保存模型
+        val_loss /= len(val_x)
+        scheduler.step(val_loss)
+
+        print(f"Epoch {epoch+1}/{seq_epochs} | Train {train_loss:.6f} | Val {val_loss:.6f}")
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+
+        # ---- 保存最佳权重 ----
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_state = {k: v.cpu() for k, v in detector_model.state_dict().items()}
+            bad_epochs = 0
+        else:
+            bad_epochs += 1
+            if bad_epochs >= patience:
+                print("早停触发，停止训练。")
+                break
+
+    # ========== 4. 保存模型 ==========
+    if best_state is not None:
+        detector_model.load_state_dict(best_state)
+
     if model_save_path:
-        try:
-            save_dir = os.path.dirname(model_save_path)
-            if save_dir and not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+        save_dir = os.path.dirname(model_save_path)
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir)
 
-            torch.save(detector_model.state_dict(), model_save_path)
-            print(f"模型状态字典已成功保存至: {os.path.abspath(model_save_path)}")
-        except Exception as e:
-            print(f"保存模型失败: {e}")
+        # 只保存模型参数
+        torch.save(detector_model.state_dict(), model_save_path)
+        print(f"最优模型参数已保存至: {os.path.abspath(model_save_path)}")
+
+    return detector_model, history

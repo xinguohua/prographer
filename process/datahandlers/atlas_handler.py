@@ -45,16 +45,12 @@ class ATLASHandler(BaseProcessor):
     def __init__(self, base_path=None, train=True, MALICIOUS_INTERVALS_PATH = None, use_time_split=False, test_window_minutes=20):
         """【修改】初始化用于图级别追踪的变量"""
         super().__init__(base_path, train)
-        self.MALICIOUS_INTERVALS_PATH = MALICIOUS_INTERVALS_PATH
-        # 用于存储每个图(dot文件)的DataFrame
         self.all_dfs_map = {}
         # 用于存储图(dot文件)被处理的顺序
         self.graph_names_in_order = []
-        # 用于存储每个生成的快照属于哪个图
-        self.snapshot_to_graph_map = []
         # 其他实例变量保持不变
         self.all_labels = []
-        # 【新增】用于按图（场景）分开存储其对应的恶意标签
+        # 用于按图（场景）分开存储其对应的恶意标签
         self.graph_to_label = {}
         self.all_netobj2pro = {}
         self.all_subject2pro = {}
@@ -72,184 +68,158 @@ class ATLASHandler(BaseProcessor):
         self.test_window_seconds = test_window_minutes * 60 if use_time_split else 0
 
     def load(self):
-        """【重构】此方法现在只加载数据，不再合并，为逐图处理做准备。"""
+        """加载 ATLAS 数据集。
+        - 训练模式：去掉恶意标签部分
+        - 测试模式：保留所有数据
+        """
         print("处理 ATLAS 数据集...")
-        graph_files = collect_dot_paths(self.base_path) #获取所有 .dot 数据文件的路径列表
-        label_map = collect_atlas_label_paths(self.base_path) #获取标签文件的路径映射字典
+        graph_files = collect_dot_paths(self.base_path)  # 所有 .dot 文件路径
+        label_map = collect_atlas_label_paths(self.base_path)  # 标签映射
 
-        # 清空之前的数据
+        # 清空缓存
         self.all_dfs_map.clear()
         self.graph_names_in_order.clear()
         self.all_labels.clear()
-        # 【新增】清空按图存储的标签字典
         self.graph_to_label.clear()
 
         for dot_file in graph_files:
-            # 只加载指定的数据集文件
-            if "M1-CVE-2015-5122_windows_h1" not in dot_file:
+            dot_name = os.path.splitext(os.path.basename(dot_file))[0]
+
+            # 根据模式选择加载哪个文件
+            if self.train and "M1-CVE-2015-5122_windows_h2" not in dot_name:
+                continue
+            if not self.train and "M1-CVE-2015-5122_windows_h1" not in dot_name:
                 continue
 
             self.total_loaded_bytes += os.path.getsize(dot_file)
-            dot_name = os.path.splitext(os.path.basename(dot_file))[0]
             print(f"正在加载场景: {dot_name}")
+            self.graph_names_in_order.append(dot_name)
 
-            self.graph_names_in_order.append(dot_name) #将这个图的名称添加到 self.graph_names_in_order 列表中，记录下处理的顺序。
-
-            # 【修改】加载标签时，同时存入全局列表和按图分类的字典
+            # 加载标签
             graph_specific_labels = []
             if dot_name in label_map:
                 with open(label_map[dot_name], 'r', encoding='utf-8') as label_file:
                     graph_specific_labels = [line.strip() for line in label_file if line.strip()]
-                    # 扩展全局标签列表（用于在build_graph中为节点打上初始标签）
                     self.all_labels.extend(graph_specific_labels)
             else:
                 if not self.train:
                     print(f"  - 警告: 未找到场景 '{dot_name}' 的标签文件。")
 
-            # 将当前图的标签列表（可能为空）存入字典
             self.graph_to_label[dot_name] = graph_specific_labels
 
-            #从当前的 .dot 文件中解析出所有的节点和边信息。
+            # 解析 .dot 文件 -> DataFrame
             netobj2pro, subject2pro, file2pro, dns, ips, conns, sess, webs = collect_nodes_from_log(dot_file)
-            df = collect_edges_from_log(dot_file, dns, ips, conns, sess, webs, subject2pro, file2pro)
+            self.all_dfs= collect_edges_from_log(dot_file, dns, ips, conns, sess, webs, subject2pro, file2pro)
 
-            self.all_dfs_map[dot_name] = df
+            if self.train:
+                if graph_specific_labels:
+                    bad = set(graph_specific_labels)
+                    before = len(self.all_dfs)
+                    mask_bad = self.all_dfs.isin(bad).any(axis=1)  # 这一行任意列命中恶意label → True
+                    self.use_df = self.all_dfs.loc[~mask_bad]  # 过滤掉整行
+                    after = len(self.use_df)
+                    print(f"  - 训练模式: 从 {before} 条边中过滤恶意标签，保留 {after} 条边")
+                else:
+                    self.use_df = self.all_dfs
+                    print(f"  - 训练模式: 无恶意标签，使用全部数据 {len(self.use_df)} 条边")
+            else:
+                self.use_df = self.all_dfs
+                print(f"  - 测试模式: 使用全部数据 {len(self.use_df)} 条边")
 
+                out_path = f"{dot_name}.csv"
+                self.use_df.to_csv(out_path, index=False, encoding="utf-8")
+                print(f"[INFO] 已保存 {dot_name} 的 DataFrame 到 {out_path}, 共 {len(self.use_df)} 行")
+            # ===============================
+
+            self.all_dfs_map[dot_name] = self.use_df
             merge_properties(netobj2pro, self.all_netobj2pro)
             merge_properties(subject2pro, self.all_subject2pro)
             merge_properties(file2pro, self.all_file2pro)
 
-            out_path = f"{dot_name}.csv"
-            df.to_csv(out_path, index=False, encoding="utf-8")
-            print(f"[INFO] 已保存 {dot_name} 的 DataFrame 到 {out_path}, 共 {len(df)} 行")
 
 
-        # 将所有恶意标签去重（全局列表）
+        # 去重标签
         self.all_labels = list(set(self.all_labels))
         print(f"所有 {len(self.graph_names_in_order)} 个图的数据加载完毕。")
+
         if not self.train:
-            # 这个打印现在反映的是当前加载批次的所有唯一恶意标签总数
-            print(f"共找到 {len(self.all_labels)} 个唯一的恶意实体标签用于本次评估。")
+            print(f"共找到 {len(self.all_labels)} 个唯一恶意标签用于本次评估。")
 
 
 
     def build_graph(self):
         """ 生成快照，并在节点创建时打标，同时记录所有出现过的节点以供评估。"""
         self.snapshots = []
-        self.snapshot_to_graph_map = []
         self.graph_to_nodes_map = {}
         self.snapshot_to_nodes_map = {}
         self.node_frequency = {}
+        current_graph_all_nodes = set()
+        snapshot_size = 300
+        forgetting_rate = 0.3
+        self.cache_graph = ig.Graph(directed=True)
+        self.node_timestamps = {}
+        self.first_flag = True
+        sorted_df = self.use_df.sort_values(by='timestamp') if 'timestamp' in self.use_df.columns else self.use_df
 
-        for graph_name in self.graph_names_in_order:
-            print(f"\n--- 正在为图 '{graph_name}' 构建快照 ---")
-            df = self.all_dfs_map.get(graph_name)
-            if df is None or df.empty:
-                print("  - 该图无数据，跳过。")
-                continue
+        out_path = "sorted_df.csv"
+        sorted_df.to_csv(out_path, index=False, encoding="utf-8")
+        print(f"[INFO] 已保存 sorted_df 的 DataFrame 到 {out_path}, 共 {len(sorted_df)} 行")
+        for _, row in sorted_df.iterrows():
+            actor_id, object_id = row["actorID"], row["objectID"]
+            action, timestamp = row["action"], row.get('timestamp', 0)
+            current_graph_all_nodes.add(actor_id)
+            current_graph_all_nodes.add(object_id)
+            self.node_frequency[actor_id] = self.node_frequency.get(actor_id, 0) + 1
+            self.node_frequency[object_id] = self.node_frequency.get(object_id, 0) + 1
 
-            # 【修改】启用时间分割时，无论训练还是测试模式都进行数据分割和保存
-            if self.use_time_split:
-                labels = self.graph_to_label.get(graph_name, [])
-                if labels:
-                    print(f"  - 原始数据: {len(df)} 条边")
-                    # 提取标签时间戳并进行数据分割
-                    label_timestamps = self.extract_label_timestamps(
-                        os.path.join(self.base_path, f"{graph_name}.dot"), labels
-                    )
-                    if label_timestamps:
-                        # 1. 加载恶意区间
-                        label_intervals = load_malicious_intervals(self.MALICIOUS_INTERVALS_PATH)
-                        # 2. 拆分数据
-                        train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=1.0)
-                        print(f"  - 分割结果 - 训练集: {len(train_df)} 条边, 测试集: {len(test_df)} 条边")
+            target_node = "192.168.223.3"
+            current_snapshot_idx = len(self.snapshots)  # 已经生成的快照数，0-based
+            # print(f"[DEBUG] {timestamp}: 节点 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
 
-                        # 保存分割后的数据集到文件
-                        self.save_split_datasets(graph_name, train_df, test_df)
+            if target_node in str(actor_id) or target_node in str(object_id):
+                print(
+                    f"[DEBUG] {timestamp}: 节点 {target_node} 出现在边 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
+            try:
+                v_actor = self.cache_graph.vs.find(name=actor_id)
+                v_actor["frequency"] = self.node_frequency[actor_id]
+            except ValueError:
+                actor_type_enum = ObjectType[row['actor_type']]
+                self.cache_graph.add_vertex(
+                    name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
+                    properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
+                    label=int(actor_id in self.all_labels),
+                    frequency = self.node_frequency[actor_id]
+                )
+            self.node_timestamps[actor_id] = timestamp
+            try:
+                v_objctor = self.cache_graph.vs.find(name=object_id)
+                v_objctor["frequency"] = self.node_frequency[object_id]
+            except ValueError:
+                object_type_enum = ObjectType[row['object']]
+                self.cache_graph.add_vertex(
+                    name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
+                    properties=extract_properties(object_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
+                    label=int(object_id in self.all_labels),
+                    frequency=self.node_frequency[actor_id]
+                )
+            self.node_timestamps[object_id] = timestamp
 
-                        # 根据模式选择使用的数据集
-                        if self.train:
-                            df = train_df  # 训练模式使用训练集数据
-                            print(f"  - 【训练模式】使用训练集数据: {len(df)} 条边")
-                        else:
-                            df = test_df  # 测试模式使用测试集数据
-                            print(f"  - 【测试模式】使用测试集数据: {len(df)} 条边")
-                    else:
-                        print(f"  - 警告: 无法提取时间戳，使用全部数据")
-                else:
-                    print(f"  - 警告: 无恶意标签，使用全部数据")
-            else:
-                print(f"  - 【无时间分割】使用全部数据: {len(df)} 条边")
+            actor_idx, object_idx = self.cache_graph.vs.find(name=actor_id).index, self.cache_graph.vs.find(name=object_id).index # 获取 actor 和 object 节点在图中的整数索引（index）
+            if not self.cache_graph.are_connected(actor_idx, object_idx): #检查这两个节点之间是否已经存在一条边
+                self.cache_graph.add_edge(actor_idx, object_idx, actions=action, timestamp=timestamp)  #加边
 
-            current_graph_all_nodes = set()
-            snapshot_size = 300
-            forgetting_rate = 0.3
-            self.cache_graph = ig.Graph(directed=True)
-            self.node_timestamps = {}
-            self.first_flag = True
-            sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
+            # --- 快照生成逻辑 ---
+            n_nodes = len(self.cache_graph.vs)
+            if self.first_flag and n_nodes >= snapshot_size:
+                self._generate_snapshot()
+                self.first_flag = False
+            elif not self.first_flag and n_nodes >= snapshot_size * (1 + forgetting_rate):
+                self._retire_old_nodes(snapshot_size, forgetting_rate)
+                self._generate_snapshot()
 
-            out_path = "sorted_df.csv"
-            sorted_df.to_csv(out_path, index=False, encoding="utf-8")
-            print(f"[INFO] 已保存 sorted_df 的 DataFrame 到 {out_path}, 共 {len(df)} 行")
-            for _, row in sorted_df.iterrows():
-                actor_id, object_id = row["actorID"], row["objectID"]
-                action, timestamp = row["action"], row.get('timestamp', 0)
-                current_graph_all_nodes.add(actor_id)
-                current_graph_all_nodes.add(object_id)
-                self.node_frequency[actor_id] = self.node_frequency.get(actor_id, 0) + 1
-                self.node_frequency[object_id] = self.node_frequency.get(object_id, 0) + 1
-
-                target_node = "192.168.223.3"
-                current_snapshot_idx = len(self.snapshots)  # 已经生成的快照数，0-based
-                # print(f"[DEBUG] {timestamp}: 节点 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
-
-                if target_node in str(actor_id) or target_node in str(object_id):
-                    print(
-                        f"[DEBUG] {timestamp}: 节点 {target_node} 出现在边 {actor_id} -> {object_id} (当前属于 Snapshot {current_snapshot_idx})")
-                try:
-                    v_actor = self.cache_graph.vs.find(name=actor_id)
-                    v_actor["frequency"] = self.node_frequency[actor_id]
-                except ValueError:
-                    actor_type_enum = ObjectType[row['actor_type']]
-                    self.cache_graph.add_vertex(
-                        name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
-                        properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
-                        label=int(actor_id in self.all_labels),
-                        frequency = self.node_frequency[actor_id]
-                    )
-                self.node_timestamps[actor_id] = timestamp
-                try:
-                    v_objctor = self.cache_graph.vs.find(name=object_id)
-                    v_objctor["frequency"] = self.node_frequency[object_id]
-                except ValueError:
-                    object_type_enum = ObjectType[row['object']]
-                    self.cache_graph.add_vertex(
-                        name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
-                        properties=extract_properties(object_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
-                        label=int(object_id in self.all_labels),
-                        frequency=self.node_frequency[actor_id]
-                    )
-                self.node_timestamps[object_id] = timestamp
-
-                actor_idx, object_idx = self.cache_graph.vs.find(name=actor_id).index, self.cache_graph.vs.find(name=object_id).index # 获取 actor 和 object 节点在图中的整数索引（index）
-                if not self.cache_graph.are_connected(actor_idx, object_idx): #检查这两个节点之间是否已经存在一条边
-                    self.cache_graph.add_edge(actor_idx, object_idx, actions=action, timestamp=timestamp)  #加边
-
-                # --- 快照生成逻辑 ---
-                n_nodes = len(self.cache_graph.vs)
-                if self.first_flag and n_nodes >= snapshot_size:
-                    self._generate_snapshot(graph_name)
-                    self.first_flag = False
-                elif not self.first_flag and n_nodes >= snapshot_size * (1 + forgetting_rate):
-                    self._retire_old_nodes(snapshot_size, forgetting_rate)
-                    self._generate_snapshot(graph_name)
-
-            # 处理该图末尾剩余的节点
-            if len(self.cache_graph.vs) > 0:
-                self._generate_snapshot(graph_name)
-
-            self.graph_to_nodes_map[graph_name] = current_graph_all_nodes
+        # 处理该图末尾剩余的节点
+        if len(self.cache_graph.vs) > 0:
+            self._generate_snapshot()
 
         # --- 后期处理：为所有快照的所有节点打上最终标签 ---
         print("\n正在检查所有节点的属性...")
@@ -262,7 +232,6 @@ class ATLASHandler(BaseProcessor):
                         v['type_name'] = "UNKNOWN_TYPE"
 
         print("图构建和打标流程全部完成。")
-        # 【修改】返回新增的 graph_to_label 字典
 
         # === 新增：把每个快照的节点 name+属性写到 TXT ===
         out_path = "snapshot_nodes.txt"
@@ -300,11 +269,10 @@ class ATLASHandler(BaseProcessor):
             if node_id in self.node_timestamps:
                 del self.node_timestamps[node_id]
 
-    def _generate_snapshot(self, graph_name: str) -> None:
+    def _generate_snapshot(self ) -> None:
         """【修改】记录快照所属的图"""
         snapshot = self.cache_graph.copy()
         self.snapshots.append(snapshot)
-        self.snapshot_to_graph_map.append(graph_name)
         snapshot_idx = len(self.snapshots) - 1
         self.snapshot_to_nodes_map[snapshot_idx] = [
             {

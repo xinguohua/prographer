@@ -61,5 +61,4 @@ print(f"RSG词汇表大小: {len(rsg_vocab)}")
 # 模型训练
 # 匹配
 # 【修改】传递序列长度参数到训练函数
-train_model(G_snapshots, snapshot_embeddings, rsg_embeddings, rsg_vocab, 
-           sequence_length_L=SEQUENCE_LENGTH)
+train_model(snapshot_embeddings, sequence_length_L=SEQUENCE_LENGTH)
