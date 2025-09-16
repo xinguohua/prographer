@@ -1,5 +1,3 @@
-# D:\baseline\process\datahandlers\atlas_handler.py
-
 import os.path
 import pandas as pd
 import igraph as ig
