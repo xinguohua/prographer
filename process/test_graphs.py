@@ -510,8 +510,8 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
     print(f" F1分数: {f1:.4f}")
     print("="*50)
     
-    generate_key_indicators(all_snapshots, diff_vectors, rsg_embeddings, rsg_vocab)
-    print_debug_info(all_snapshots, eval_true, eval_pred, 0)  # 从索引0开始
+    # generate_key_indicators(all_snapshots, diff_vectors, rsg_embeddings, rsg_vocab)
+    # print_debug_info(all_snapshots, eval_true, eval_pred, 0)  # 从索引0开始
 
 # --- 主程序入口 ---
 if __name__ == '__main__':

@@ -11,35 +11,6 @@ from .type_enum import ObjectType
 
 
 
-def load_malicious_intervals(filepath: str):
-    """
-    从 malicious_intervals.txt 读取恶意时间区间
-    格式: label,start,end
-    返回: {label: [(start, end), ...], ...}
-    """
-    intervals = {}
-    with open(filepath, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split(",")
-            if len(parts) != 3:
-                raise ValueError(f"格式错误: {line}")
-
-            label = parts[0]
-            start, end = map(int, parts[1:3])
-
-            if label not in intervals:
-                intervals[label] = []
-            intervals[label].append((start, end))
-
-    print(f"[INFO] 已加载 {len(intervals)} 个恶意实体")
-    for k, v in intervals.items():
-        print(f"  - {k}: {v}")
-    return intervals
-
-
 
 class ATLASHandler(BaseProcessor):
     def __init__(self, base_path=None, train=True, MALICIOUS_INTERVALS_PATH = None, use_time_split=False, test_window_minutes=20):

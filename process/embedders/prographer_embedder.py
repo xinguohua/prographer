@@ -244,11 +244,29 @@ class ProGrapherEmbedder(GraphEmbedderBase):
         print("Encoder model loaded successfully.")
         return instance
 
-    def get_snapshot_embeddings(self):
-        print("Retrieving all snapshot embeddings...")
+    def get_snapshot_embeddings(self, snapshot_sequence=None):
+        """
+        获取给定快照序列的嵌入向量。
+        如果不传 snapshot_sequence，就默认用初始化时的 self.snapshot_sequence。
+        """
         if self.snapshot_embeddings_layer is None:
-            raise RuntimeError("Model has not been trained yet. Please call train() first.")
-        return self.snapshot_embeddings_layer.weight.detach().cpu().numpy()
+            raise RuntimeError("模型尚未训练或加载，无法获取快照嵌入。")
+
+        # 如果传入新的快照序列，用它来决定要生成哪些 index
+        if snapshot_sequence is None:
+            snapshot_sequence = self.snapshot_sequence
+
+        num_snapshots = len(snapshot_sequence)
+
+        # 构造 snapshot indices [0, 1, 2, ..., num_snapshots-1]
+        indices = torch.arange(num_snapshots, device=self.device)
+
+        # 直接通过 embedding layer 获取向量
+        with torch.no_grad():
+            embeddings = self.snapshot_embeddings_layer(indices)
+
+        # 返回到 CPU 并转成 numpy 方便后续使用
+        return embeddings.cpu().numpy()
 
     def get_rsg_embeddings(self):
         print("Retrieving all RSG embeddings and vocabulary...")
@@ -259,46 +277,7 @@ class ProGrapherEmbedder(GraphEmbedderBase):
 
     # ... embed_nodes 和 embed_edges 方法保持不变 ...
     def embed_nodes(self):
-        print("Generating node embeddings using the final snapshot's structure and globally trained RSG embeddings...")
-        try:
-            rsg_embeddings_np, rsg_vocab_map = self.get_rsg_embeddings()
-        except RuntimeError as e:
-            print(e)
-            return {}
-        rsg_str_to_emb = {rsg: rsg_embeddings_np[idx] for rsg, idx in rsg_vocab_map.items()}
-        node_embeddings = {}
-        if not self.snapshot_sequence:
-            print("Warning: No snapshots available to generate node embeddings.")
-            return {}
-        final_snapshot = self.snapshot_sequence[-1]
-        for v in final_snapshot.vs:
-            node_name = v['name']
-            rsg_str = ProGrapherEmbedder.generate_rsg(final_snapshot, v.index, self.wl_depth)
-            embedding = rsg_str_to_emb.get(rsg_str, np.zeros(self.embedding_dim))
-            node_embeddings[node_name] = embedding
-        for node_name in self.mapp.keys():
-            if node_name not in node_embeddings:
-                node_embeddings[node_name] = np.zeros(self.embedding_dim)
-        print(f"Generated {len(node_embeddings)} node embeddings.")
-        return node_embeddings
+        pass
 
     def embed_edges(self):
-        print("Generating edge embeddings based on endpoint node embeddings...")
-        node_embeddings = self.embed_nodes()
-        if not node_embeddings:
-            print("Warning: Node embeddings are empty, cannot generate edge embeddings.")
-            return {}
-        edge_embeddings = {}
-        if not hasattr(self, 'global_edges') or not self.global_edges:
-            self._build_global_edges()
-        for src_name, tgt_name, action in self.global_edges:
-            source_emb = node_embeddings.get(src_name, np.zeros(self.embedding_dim))
-            target_emb = node_embeddings.get(tgt_name, np.zeros(self.embedding_dim))
-            edge_emb = (source_emb + target_emb) / 2.0
-            edge_embeddings[action] = edge_emb
-        print(f"Generated embeddings for {len(edge_embeddings)} unique edge types.")
-        return edge_embeddings
-
-# =========================================================================
-# =============================== 修改结束 ================================
-# =========================================================================
+        pass
