@@ -79,7 +79,7 @@ def train_model(
         seq_epochs=30, #训练周期数
         batch_size=32, #批处理大小
         # --- 模型保存路径参数 ---
-        model_save_path="d:/prographer/process/prographer_detector.pth" # 使用一个明确的默认路径
+        model_save_path="prographer_detector.pth" # 使用一个明确的默认路径
 ):
     """
     实现了 ProGrapher 的异常检测器训练 (TextRCNN 版本)。

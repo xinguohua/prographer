@@ -6,35 +6,10 @@ import igraph as ig
 import re
 
 from .base import BaseProcessor
-from .common import merge_properties, collect_dot_paths, extract_properties, collect_atlas_label_paths
+from .common import merge_properties, collect_dot_paths, collect_atlas_label_paths
 from .type_enum import ObjectType
 
-# 假设 collect_nodes_from_log 和 collect_edges_from_log 在这个文件中
-# 如果它们在别处，你需要调整导入路径
-def collect_nodes_from_log(paths):
-    netobj2pro, subject2pro, file2pro = {}, {}, {}
-    domain_name_set, ip_set, connection_set, session_set, web_object_set = {}, {}, {}, {}, {}
-    nodes = []
-    with open(paths, 'r', encoding='utf-8') as f:
-        content = f.read()
-    statements = content.split(';')
-    node_pattern = re.compile(r'^\s*"?(.+?)"?\s*\[.*?type="?([^",\]]+)"?', re.IGNORECASE)
-    for stmt in statements:
-        if 'capacity=' in stmt: continue
-        match = node_pattern.search(stmt)
-        if match:
-            node_name, node_typen = match.group(1), match.group(2)
-            nodes.append((node_name, node_typen))
-    for node_name, node_typen in nodes:
-        node_id, node_type = node_name, node_typen
-        if node_type == 'domain_name': netobj2pro[node_id] = node_id; domain_name_set[node_id] = node_id
-        elif node_type == 'IP_Address': netobj2pro[node_id] = node_id; ip_set[node_id] = node_id
-        elif node_type == 'connection': netobj2pro[node_id] = node_id; connection_set[node_id] = node_id
-        elif node_type == 'session': netobj2pro[node_id] = node_id; session_set[node_id] = node_id
-        elif node_type == 'web_object': netobj2pro[node_id] = node_id; web_object_set[node_id] = node_id
-        elif node_type == 'process': subject2pro[node_id] = node_id
-        elif node_type == 'file': file2pro[node_id] = node_id
-    return netobj2pro, subject2pro, file2pro, domain_name_set, ip_set, connection_set, session_set, web_object_set
+
 
 def load_malicious_intervals(filepath: str):
     """
@@ -64,27 +39,6 @@ def load_malicious_intervals(filepath: str):
         print(f"  - {k}: {v}")
     return intervals
 
-def collect_edges_from_log(paths, domain_name_set, ip_set, connection_set, session_set, web_object_set, subject2pro, file2pro) -> pd.DataFrame:
-    edges = []
-    with open(paths, "r", encoding="utf-8") as f:
-        content = f.read()
-    statements = content.split(";")
-    edge_pattern = re.compile(r'"?([^"]+)"?\s*->\s*"?(.*?)"?\s*\[.*?capacity=.*?type="?([^",\]]+)"?.*?timestamp=(\d+)', re.IGNORECASE | re.DOTALL)
-    for stmt in statements:
-        if "capacity=" not in stmt: continue
-        m = edge_pattern.search(stmt)
-        if m:
-            source, target, edge_type, ts = (x.strip() for x in m.groups())
-            source_type = "PRINCIPAL_LOCAL"
-            if source in domain_name_set or source in ip_set or source in connection_set or source in session_set or source in web_object_set: source_type = "NETFLOW_OBJECT"
-            elif source in subject2pro: source_type = "SUBJECT_PROCESS"
-            elif source in file2pro: source_type = "FILE_OBJECT_BLOCK"
-            target_type = "PRINCIPAL_LOCAL"
-            if target in domain_name_set or target in ip_set or target in connection_set or target in session_set or target in web_object_set: target_type = "NETFLOW_OBJECT"
-            elif target in subject2pro: target_type = "SUBJECT_PROCESS"
-            elif target in file2pro: target_type = "FILE_OBJECT_BLOCK"
-            edges.append((source, source_type, target, target_type, edge_type, int(ts)))
-    return pd.DataFrame(edges, columns=["actorID", "actor_type", "objectID", "object", "action", "timestamp"])
 
 
 class ATLASHandler(BaseProcessor):
@@ -209,10 +163,10 @@ class ATLASHandler(BaseProcessor):
                         # 2. 拆分数据
                         train_df, test_df = self.split_dataframe_by_time(df, label_intervals, buffer_ratio=1.0)
                         print(f"  - 分割结果 - 训练集: {len(train_df)} 条边, 测试集: {len(test_df)} 条边")
-                        
+
                         # 保存分割后的数据集到文件
                         self.save_split_datasets(graph_name, train_df, test_df)
-                        
+
                         # 根据模式选择使用的数据集
                         if self.train:
                             df = train_df  # 训练模式使用训练集数据
@@ -260,7 +214,7 @@ class ATLASHandler(BaseProcessor):
                     actor_type_enum = ObjectType[row['actor_type']]
                     self.cache_graph.add_vertex(
                         name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
-                        properties=extract_properties(actor_id, row, action, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
+                        properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
                         label=int(actor_id in self.all_labels),
                         frequency = self.node_frequency[actor_id]
                     )
@@ -272,7 +226,7 @@ class ATLASHandler(BaseProcessor):
                     object_type_enum = ObjectType[row['object']]
                     self.cache_graph.add_vertex(
                         name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
-                        properties=extract_properties(object_id, row, action, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
+                        properties=extract_properties(object_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
                         label=int(object_id in self.all_labels),
                         frequency=self.node_frequency[actor_id]
                     )
@@ -363,18 +317,18 @@ class ATLASHandler(BaseProcessor):
     def extract_label_timestamps(self, dot_file_path: str, labels: list) -> dict:
         """从.dot文件中提取恶意标签的首次出现时间戳"""
         label_timestamps = {}
-        
+
         with open(dot_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         statements = content.split(";")
         edge_pattern = re.compile(
-            r'"?([^"]+)"?\s*->\s*"?(.*?)"?\s*\[.*?capacity=.*?type="?([^",\]]+)"?.*?timestamp=(\d+)', 
+            r'"?([^"]+)"?\s*->\s*"?(.*?)"?\s*\[.*?capacity=.*?type="?([^",\]]+)"?.*?timestamp=(\d+)',
             re.IGNORECASE | re.DOTALL
         )
-        
+
         print(f"正在提取标签时间戳，标签列表: {labels}")
-        
+
         for stmt in statements:
             if "capacity=" not in stmt:
                 continue
@@ -382,13 +336,13 @@ class ATLASHandler(BaseProcessor):
             if match:
                 source, target, edge_type, timestamp = match.groups()
                 timestamp = int(timestamp)
-                
+
                 # 检查源节点和目标节点是否在恶意标签中
                 for label in labels:
                     if (source.strip() == label or target.strip() == label):
                         if label not in label_timestamps or timestamp < label_timestamps[label]:
                             label_timestamps[label] = timestamp
-        
+
         print(f"提取到的标签时间戳: {label_timestamps}")
         return label_timestamps
 
@@ -449,30 +403,32 @@ class ATLASHandler(BaseProcessor):
             train_file = os.path.join(self.base_path, f"{graph_name}_trainlogs.csv")
             test_file = os.path.join(self.base_path, f"{graph_name}_testlogs.csv")
 
-            
+
             # 【新增】数据分割质量验证
             total_original = len(train_df) + len(test_df)
             overlap_train_test = len(pd.concat([train_df, test_df]).drop_duplicates()) < total_original
-            
+
             print(f"  - 数据分割质量检查:")
             print(f"    * 训练集与测试集重叠: {'是' if overlap_train_test else '否'}")
-            
+
             # 保存数据集到CSV文件
             if not train_df.empty:
                 train_df.to_csv(train_file, index=False, encoding='utf-8')
                 print(f"  - 训练集已保存到: {train_file} ({len(train_df)} 条边)")
             else:
                 print(f"  - 训练集为空，跳过保存")
-            
+
             if not test_df.empty:
                 test_df.to_csv(test_file, index=False, encoding='utf-8')
                 print(f"  - 测试集已保存到: {test_file} ({len(test_df)} 条边)")
             else:
                 print(f"  - 测试集为空，跳过保存")
 
-                
+
         except Exception as e:
             print(f"  - 保存数据集时出错: {str(e)}")
+
+
 
 def collect_nodes_from_log(paths):  # dot文件的路径
     # 创建字典
@@ -608,3 +564,15 @@ def collect_edges_from_log(paths, domain_name_set, ip_set, connection_set, sessi
             edges.append((source, source_type, target, target_type, edge_type, int(ts)))
 
     return pd.DataFrame(edges, columns=["actorID", "actor_type", "objectID", "object", "action", "timestamp"])
+
+
+
+def extract_properties(node_id, netobj2pro, subject2pro, file2pro):
+    if node_id in netobj2pro:
+        return netobj2pro[node_id]
+    elif node_id in file2pro:
+        return file2pro[node_id]
+    elif node_id in subject2pro:
+        return subject2pro[node_id]
+    else:
+        return node_id

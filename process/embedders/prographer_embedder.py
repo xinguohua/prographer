@@ -1,14 +1,14 @@
 # embedders/prographer.py
-
+import math
+from collections import Counter
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import igraph as ig
-import numpy as np
-from collections import defaultdict
 from tqdm import tqdm
 
 from .base import GraphEmbedderBase
+
 
 # =========================================================================
 # =================== 修改后的 ProGrapherEmbedder 类 =======================
@@ -26,7 +26,7 @@ class ProGrapherEmbedder(GraphEmbedderBase):
                  neg_samples=15,
                  # --- Training Hyperparameters ---
                  learning_rate=1e-3,
-                 epochs=1,
+                 epochs=10,
                  weight_decay=1e-5,
                  # --- 新增：序列长度参数 ---
                  sequence_length=12
@@ -57,7 +57,8 @@ class ProGrapherEmbedder(GraphEmbedderBase):
     @staticmethod
     def generate_rsg(graph, node_idx, depth):
         if depth == 0:
-            return str(graph.vs[node_idx]['type'])
+            # print(f"name: {graph.vs[node_idx]['name']} properties: {graph.vs[node_idx]['properties']}")
+            return str(graph.vs[node_idx]['name'] )
         prev_rsg = ProGrapherEmbedder.generate_rsg(graph, node_idx, depth - 1)
         incident_edges = graph.es[graph.incident(node_idx, mode="all")]
         if not incident_edges:
@@ -85,10 +86,9 @@ class ProGrapherEmbedder(GraphEmbedderBase):
         print(f"Vocabulary built with {len(self.rsg_vocab)} unique RSGs.")
 
     def train(self):
-        """
-        训练 Graph2Vec 模型，并在训练结束后自动保存模型。
-        """
-        print("--- Training ProGrapher Encoder (Graph2Vec) ---")
+        # 训练 Graph2Vec 模型，并在训练结束后自动保存模型。
+
+        print("--- Training ProGrapher Encoder (Graph2Vec with frequency weighting) ---")
         if not self.snapshot_sequence:
             print("Warning: No snapshots to train on.")
             return
@@ -101,12 +101,14 @@ class ProGrapherEmbedder(GraphEmbedderBase):
             print("Warning: RSG vocabulary is empty. Cannot train.")
             return
 
+        # Embedding 表
         self.snapshot_embeddings_layer = nn.Embedding(num_snapshots, self.embedding_dim).to(self.device)
         self.rsg_embeddings_layer = nn.Embedding(num_rsgs, self.embedding_dim).to(self.device)
         nn.init.xavier_uniform_(self.snapshot_embeddings_layer.weight)
         nn.init.xavier_uniform_(self.rsg_embeddings_layer.weight)
 
-        criterion = nn.BCEWithLogitsLoss().to(self.device)
+        # 注意：reduction="none"，方便单独加权
+        criterion = nn.BCEWithLogitsLoss(reduction="none").to(self.device)
         optimizer = optim.Adam(
             list(self.snapshot_embeddings_layer.parameters()) + list(self.rsg_embeddings_layer.parameters()),
             lr=self.learning_rate,
@@ -114,35 +116,48 @@ class ProGrapherEmbedder(GraphEmbedderBase):
         )
 
         for epoch in range(self.epochs):
-            total_loss = 0
+            total_loss = 0.0
             num_updates = 0
             shuffled_indices = np.random.permutation(num_snapshots)
-            # RSG SNAPSHOT
-            for snapshot_idx in tqdm(shuffled_indices, desc=f"Encoder Epoch {epoch+1}/{self.epochs}", leave=False):
-                snapshot = self.snapshot_sequence[snapshot_idx]
-                positive_rsg_ids = {
-                    self.rsg_vocab[ProGrapherEmbedder.generate_rsg(snapshot, v_idx, d)]
-                    for v_idx in range(len(snapshot.vs))
-                    for d in range(self.wl_depth + 1)
-                    if ProGrapherEmbedder.generate_rsg(snapshot, v_idx, d) in self.rsg_vocab
-                }
-                if not positive_rsg_ids: continue
 
-                for rsg_id in positive_rsg_ids:
+            for snapshot_idx in tqdm(shuffled_indices, desc=f"Encoder Epoch {epoch + 1}/{self.epochs}", leave=False):
+                snapshot = self.snapshot_sequence[snapshot_idx]
+
+                # ----------------- 正样本统计 (Counter) -----------------
+                rsg_counts = Counter()
+                for v_idx in range(len(snapshot.vs)):
+                    node_freq = snapshot.vs[v_idx]["frequency"]  # 节点频次
+                    for d in range(self.wl_depth + 1):
+                        rsg = ProGrapherEmbedder.generate_rsg(snapshot, v_idx, d)
+                        if rsg in self.rsg_vocab:
+                            rsg_counts[self.rsg_vocab[rsg]] += node_freq
+                if not rsg_counts:
+                    continue
+                # ---------------------------------------------------------
+
+                # ------------------ 遍历每个正样本 -------------------
+                for rsg_id, freq in rsg_counts.items():
+                    # 负采样
                     neg_sample_ids = []
                     while len(neg_sample_ids) < self.neg_samples:
                         sample = np.random.randint(0, num_rsgs)
-                        if sample != rsg_id and sample not in positive_rsg_ids:
+                        if sample != rsg_id and sample not in rsg_counts:  # 排除正样本
                             neg_sample_ids.append(sample)
 
                     target_ids = torch.LongTensor([rsg_id] + neg_sample_ids).to(self.device)
                     labels = torch.FloatTensor([1.0] + [0.0] * self.neg_samples).to(self.device)
                     snapshot_id_tensor = torch.LongTensor([snapshot_idx]).to(self.device)
 
-                    snapshot_vec = self.snapshot_embeddings_layer(snapshot_id_tensor)
-                    rsg_vecs = self.rsg_embeddings_layer(target_ids)
-                    logits = torch.sum(snapshot_vec * rsg_vecs, dim=1)
-                    loss = criterion(logits, labels)
+                    snapshot_vec = self.snapshot_embeddings_layer(snapshot_id_tensor)  # [1, dim]
+                    rsg_vecs = self.rsg_embeddings_layer(target_ids)  # [1+neg, dim]
+                    logits = torch.sum(snapshot_vec * rsg_vecs, dim=1)  # [1+neg]
+
+                    # -------- loss：只对正样本乘以权重 --------
+                    raw_loss = criterion(logits, labels)  # [1+neg]
+                    weights = torch.ones_like(labels)
+                    weights[0] = math.log(1.0 + freq)  # 正样本加权，负样本权重=1
+                    loss = (raw_loss * weights).mean()
+                    # ---------------------------------------
 
                     optimizer.zero_grad()
                     loss.backward()
@@ -150,17 +165,15 @@ class ProGrapherEmbedder(GraphEmbedderBase):
 
                     total_loss += loss.item()
                     num_updates += 1
+                # ---------------------------------------------------------
 
             avg_loss = total_loss / num_updates if num_updates > 0 else 0
-            print(f"Encoder Epoch {epoch+1}/{self.epochs}, Average Loss: {avg_loss:.6f}")
+            print(f"Encoder Epoch {epoch + 1}/{self.epochs}, Average Loss: {avg_loss:.6f}")
 
         print("\nEncoder training complete.")
 
-        # ===================================================
-        # ============ 核心修改：在这里自动调用保存 ============
-        # ===================================================
         self.save_model(self.MODEL_SAVE_PATH)
-        # ===================================================
+
 
     def save_model(self, path):
         """
