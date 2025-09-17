@@ -433,9 +433,6 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
         "atlas", 
         False,
         PATH_MAP,
-        MALICIOUS_INTERVALS_PATH,
-        use_time_split=True,
-        test_window_minutes=test_window_minutes
     )
     handler.load()
     handler.build_graph()
