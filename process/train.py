@@ -44,7 +44,8 @@ data_handler = get_handler("atlas", True, PATH_MAP, MALICIOUS_INTERVALS_PATH, us
 data_handler.load()
 # 成整个大图+捕捉特征语料+简化策略这里添加
 # 【修改】更新返回值解包，接收新增的complete_nodes_per_graph和labels_per_graph
-G_snapshots, complete_nodes_per_graph, labels_per_graph = data_handler.build_graph()
+data_handler.build_graph()
+G_snapshots = data_handler.snapshots
 print(f"总共生成了 {len(G_snapshots)} 个快照。")
 
 #嵌入构造特征向量
@@ -59,6 +60,5 @@ print(f"已生成快照嵌入序列，形状为: {snapshot_embeddings.shape}")
 print(f"已生成RSG嵌入矩阵，形状为: {rsg_embeddings.shape}")
 print(f"RSG词汇表大小: {len(rsg_vocab)}")
 # 模型训练
-# 匹配
-# 【修改】传递序列长度参数到训练函数
-train_model(snapshot_embeddings, sequence_length_L=SEQUENCE_LENGTH)
+
+train_model(snapshot_embeddings[data_handler.benign_idx_start:data_handler.benign_idx_end+1], sequence_length_L=SEQUENCE_LENGTH)

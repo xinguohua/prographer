@@ -438,8 +438,9 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
         test_window_minutes=test_window_minutes
     )
     handler.load()
-    all_snapshots,complete_nodes_per_graph, labels_per_graph = handler.build_graph()
-    if not all_snapshots: 
+    handler.build_graph()
+    all_snapshots = handler.snapshots
+    if not all_snapshots:
         print("错误: 未能构建任何快照。")
         return
         
@@ -463,7 +464,7 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
     
     # 【关键修改】无论快照数量多少，都进行异常检测
     pred_labels, diff_vectors = predict_anomalous_snapshots(
-        snapshot_embeddings, detector_model_path
+        snapshot_embeddings[handler.malicious_idx_start:handler.malicious_idx_end+1], detector_model_path
     )
     print(f"检测到 {len(diff_vectors)} 个异常快照")
     print(f"预测标签长度: {len(pred_labels)}")
