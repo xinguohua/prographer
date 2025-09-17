@@ -82,7 +82,7 @@ class ATLASHandler(BaseProcessor):
         # 去重标签
         self.all_labels = list(set(self.all_labels))
         if not self.train:
-            print(f"共找到 {len(self.all_labels)} 个唯一恶意标签用于本次评估。")
+            print(f"共找到 {len(self.all_labels)} 个唯一恶意标签: {self.all_labels}")
 
     def build_graph(self):
         def run_one(dataset_name, df):
@@ -121,7 +121,7 @@ class ATLASHandler(BaseProcessor):
                         name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
                         properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro,
                                                       self.all_file2pro),
-                        label=int(actor_id in self.all_labels),
+                        label = int(any(lbl in actor_id for lbl in self.all_labels)),
                         frequency= node_frequency[actor_id]
                     )
                 node_timestamps[actor_id] = timestamp
@@ -135,7 +135,7 @@ class ATLASHandler(BaseProcessor):
                         name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
                         properties=extract_properties(object_id, self.all_netobj2pro, self.all_subject2pro,
                                                       self.all_file2pro),
-                        label=int(object_id in self.all_labels),
+                        label = int(any(lbl in object_id for lbl in self.all_labels)),
                         frequency= node_frequency[object_id]
                     )
                 node_timestamps[object_id] = timestamp

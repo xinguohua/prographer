@@ -295,10 +295,11 @@ def print_debug_info(all_snapshots, eval_true, eval_pred, eval_start_idx):
             for v in snapshot.vs:
                 node_name = v['name']
                 node_type = v.attributes().get('type_name', 'UNKNOWN')
+                frequency = v.attributes().get('frequency', 'UNKNOWN')
                 node_types_count[node_type] = node_types_count.get(node_type, 0) + 1
 
                 if v.attributes().get('label') == 1:
-                    malicious_nodes.append(f"{node_name}({node_type})")
+                    malicious_nodes.append(f"{node_name}({node_type})【{frequency}】")
                 else:
                     benign_nodes.append(f"{node_name}({node_type})")
 
@@ -330,7 +331,9 @@ def print_debug_info(all_snapshots, eval_true, eval_pred, eval_start_idx):
                 node_name = v['name']
                 node_type = v.attributes().get('type_name', 'UNKNOWN')
                 node_types_count[node_type] = node_types_count.get(node_type, 0) + 1
-                all_nodes.append(f"{node_name}({node_type})")
+                frequency = v.attributes().get('frequency', 'UNKNOWN')
+
+                all_nodes.append(f"{node_name}({node_type})【{frequency}】")
 
                 # 检查可能导致误报的模式
                 if 'SUBJECT_PROCESS' in node_type and any(word in node_name.lower()
@@ -373,9 +376,10 @@ def print_debug_info(all_snapshots, eval_true, eval_pred, eval_start_idx):
                 node_name = v['name']
                 node_type = v.attributes().get('type_name', 'UNKNOWN')
                 node_types_count[node_type] = node_types_count.get(node_type, 0) + 1
+                frequency = v.attributes().get('frequency', 'UNKNOWN')
 
                 if v.attributes().get('label') == 1:
-                    malicious_nodes.append(f"{node_name}({node_type})")
+                    malicious_nodes.append(f"{node_name}({node_type})【{frequency}】")
                 else:
                     benign_nodes.append(f"{node_name}({node_type})")
 
@@ -403,7 +407,9 @@ def print_debug_info(all_snapshots, eval_true, eval_pred, eval_start_idx):
             for v in sample_tn.vs:
                 node_type = v.attributes().get('type_name', 'UNKNOWN')
                 tn_node_types[node_type] = tn_node_types.get(node_type, 0) + 1
-            print(f"  📊 典型良性快照的节点类型分布 (快照{tn_indices[0]}): {dict(sorted(tn_node_types.items()))}")
+                frequency = v.attributes().get('frequency', 'UNKNOWN')
+
+            print(f"  📊 典型良性快照的节点类型分布 (快照{tn_indices[0]}): {dict(sorted(tn_node_types.items()))}【{frequency}】")
 
     print("\n" + "="*70)
     print("🎯 调试分析总结:")
