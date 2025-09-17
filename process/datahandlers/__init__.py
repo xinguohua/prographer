@@ -12,7 +12,7 @@ handler_map = {
 
 
 
-def get_handler(name, train, PATH_MAP, MALICIOUS_INTERVALS_PATH, use_time_split=False, **kwargs):
+def get_handler(name, train, PATH_MAP, **kwargs):
     cls = handler_map.get(name.lower())
     base_path = PATH_MAP.get(name)
     if base_path is None:
@@ -21,7 +21,7 @@ def get_handler(name, train, PATH_MAP, MALICIOUS_INTERVALS_PATH, use_time_split=
         raise ValueError(f"未知数据集: {name}")
     
     # 如果是ATLAS数据集且启用时间分割，传递额外参数
-    if name.lower() == "atlas" and use_time_split:
-        return cls(base_path, train, MALICIOUS_INTERVALS_PATH, use_time_split=True, **kwargs)
+    if name.lower() == "atlas":
+        return cls(base_path, train)
     else:
         return cls(base_path, train)

@@ -16,6 +16,8 @@ class BaseProcessor(ABC):
         self.benign_idx_end = 0
         self.malicious_idx_start = 0
         self.malicious_idx_end = 0
+        self.snapshots = []
+        self.snapshot_to_nodes_map = {}
 
 
     @abstractmethod

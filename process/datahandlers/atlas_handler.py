@@ -11,27 +11,16 @@ from .type_enum import ObjectType
 
 
 class ATLASHandler(BaseProcessor):
-    def __init__(self, base_path=None, train=True, MALICIOUS_INTERVALS_PATH = None, use_time_split=False, test_window_minutes=20):
-        """【修改】初始化用于图级别追踪的变量"""
+    def __init__(self, base_path=None, train=True ):
         super().__init__(base_path, train)
 
-        # 其他实例变量保持不变
-        self.all_labels = []
         # 用于按图（场景）分开存储其对应的恶意标签
         self.graph_to_label = {}
         self.all_netobj2pro = {}
         self.all_subject2pro = {}
         self.all_file2pro = {}
         self.total_loaded_bytes = 0
-        self.snapshot_to_nodes_map = {}
 
-        # 【新增】时间分割相关参数
-        self.use_time_split = use_time_split
-        self.test_window_minutes = test_window_minutes
-
-        # 【新增】时间分割功能相关参数
-        self.use_time_split = use_time_split
-        self.test_window_seconds = test_window_minutes * 60 if use_time_split else 0
 
     def load(self):
         """加载 ATLAS 数据集。
@@ -98,9 +87,6 @@ class ATLASHandler(BaseProcessor):
             print(f"共找到 {len(self.all_labels)} 个唯一恶意标签用于本次评估。")
 
     def build_graph(self):
-        """基于 textrcnn_df 和 test_df 各自生成快照"""
-        self.snapshots = []
-        self.snapshot_to_nodes_map = {}
         def run_one(dataset_name, df):
             """给定一个 df，独立跑快照生成"""
             if df is None or len(df) == 0:
