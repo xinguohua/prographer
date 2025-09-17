@@ -523,22 +523,17 @@ if __name__ == '__main__':
     else:
         env_config = config["remote"]
 
-
-
     # 拿到路径
     DETECTOR_MODEL_PATH = env_config["DETECTOR_MODEL_PATH"]
     ENCODER_MODEL_PATH = env_config["ENCODER_MODEL_PATH"]
-    MALICIOUS_INTERVALS_PATH = env_config["malicious_intervals"]
     PATH_MAP = env_config["path_map"]
 
     # 【新增】可自定义的参数
     SEQUENCE_LENGTH = 7        # 序列长度，可以修改
-    TEST_WINDOW = 20           # 测试窗口分钟数，可以修改
-    
-    print(f"使用参数: 序列长度={SEQUENCE_LENGTH},  测试窗口={TEST_WINDOW}分钟")
+
+    print(f"使用参数: 序列长度={SEQUENCE_LENGTH}")
     
     if not os.path.exists(DETECTOR_MODEL_PATH): print(f"错误: 检测器模型文件不存在: {DETECTOR_MODEL_PATH}"); sys.exit(1)
     if not os.path.exists(ENCODER_MODEL_PATH): print(f"错误: 编码器模型文件不存在: {ENCODER_MODEL_PATH}\n提示: 请先运行 train.py 来训练并生成编码器模型。"); sys.exit(1)
     
-    run_snapshot_level_evaluation(DETECTOR_MODEL_PATH, ENCODER_MODEL_PATH, PATH_MAP, MALICIOUS_INTERVALS_PATH,
-                                 SEQUENCE_LENGTH,  TEST_WINDOW)
+    run_snapshot_level_evaluation(DETECTOR_MODEL_PATH, ENCODER_MODEL_PATH, PATH_MAP, SEQUENCE_LENGTH)

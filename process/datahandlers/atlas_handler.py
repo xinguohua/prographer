@@ -70,10 +70,11 @@ class ATLASHandler(BaseProcessor):
             dot_df= collect_edges_from_log(dot_file, dns, ips, conns, sess, webs, subject2pro, file2pro)
 
             if dot_name == benign_name:
-                print(f"  - 良性图全部: {len(dot_df)} 条边")
                 df_begin, before, after = filter_bad_edges(dot_df, self.graph_to_label[dot_name])
+                print(f"  - 恶意图全部: {len(df_begin)} 条边")
                 self.begin = df_begin
             elif dot_name == malicious_name:
+                print(f"  - 良性图全部: {len(dot_df)} 条边")
                 self.malicious = dot_df
                 self.all_labels.extend(self.graph_to_label[dot_name])
 
