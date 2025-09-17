@@ -22,7 +22,7 @@ class ProGrapherEmbedder(GraphEmbedderBase):
     def __init__(self, snapshot_sequence,
                  # --- Encoder (Graph2Vec) Parameters from Paper ---
                  embedding_dim=256,
-                 wl_depth=4,
+                 wl_depth=2,
                  neg_samples=15,
                  # --- Training Hyperparameters ---
                  learning_rate=1e-3,
