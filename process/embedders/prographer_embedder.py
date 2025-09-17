@@ -26,7 +26,7 @@ class ProGrapherEmbedder(GraphEmbedderBase):
                  neg_samples=15,
                  # --- Training Hyperparameters ---
                  learning_rate=1e-3,
-                 epochs=10,
+                 epochs=3,
                  weight_decay=1e-5,
                  # --- 新增：序列长度参数 ---
                  sequence_length=12
@@ -84,6 +84,11 @@ class ProGrapherEmbedder(GraphEmbedderBase):
                     all_rsgs.add(ProGrapherEmbedder.generate_rsg(snapshot, v_idx, d))
         self.rsg_vocab = {rsg: i for i, rsg in enumerate(sorted(list(all_rsgs)))}
         print(f"Vocabulary built with {len(self.rsg_vocab)} unique RSGs.")
+        save_path = "rsg_vocab.txt"
+        with open(save_path, "w", encoding="utf-8") as f:
+            for rsg, idx in self.rsg_vocab.items():
+                f.write(f"{idx}\t{rsg}\n")
+        print(f"[INFO] RSG vocabulary saved to {save_path}")
 
     def train(self):
         # 训练 Graph2Vec 模型，并在训练结束后自动保存模型。
