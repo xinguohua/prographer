@@ -7,9 +7,6 @@ from .base import BaseProcessor
 from .common import merge_properties, collect_dot_paths, collect_atlas_label_paths
 from .type_enum import ObjectType
 
-
-
-
 class ATLASHandler(BaseProcessor):
     def __init__(self, base_path=None, train=True ):
         super().__init__(base_path, train)
@@ -71,10 +68,10 @@ class ATLASHandler(BaseProcessor):
 
             if dot_name == benign_name:
                 df_begin, before, after = filter_bad_edges(dot_df, self.graph_to_label[dot_name])
-                print(f"  - 恶意图全部: {len(df_begin)} 条边")
+                print(f"  - 良性图全部: {len(df_begin)} 条边")
                 self.begin = df_begin
             elif dot_name == malicious_name:
-                print(f"  - 良性图全部: {len(dot_df)} 条边")
+                print(f"  - 恶意图全部: {len(dot_df)} 条边")
                 self.malicious = dot_df
                 self.all_labels.extend(self.graph_to_label[dot_name])
 
@@ -168,7 +165,6 @@ class ATLASHandler(BaseProcessor):
 
         self.benign_idx_start, self.benign_idx_end = run_one("textrcnn_train", begin_df)
         self.malicious_idx_start, self.malicious_idx_end = run_one("test", malicous_df)
-        # --- 导出快照节点 ---
         out_txt = f"snapshot_nodes.txt"
         with open(out_txt, "w", encoding="utf-8") as f:
             for snapshot_idx, nodes in self.snapshot_to_nodes_map.items():

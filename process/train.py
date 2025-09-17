@@ -1,8 +1,6 @@
 # =================训练=========================
-import sys
 import os
-# 这个代码块修复了导入路径问题
-# 它将父目录（也就是项目根目录）添加到了 sys.path
+import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch
 from datahandlers import get_handler
@@ -10,8 +8,6 @@ from embedders import get_embedder_by_name
 from process.match.match import train_model
 import platform
 import yaml
-
-from process.partition import detect_communities
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -46,7 +42,6 @@ print(f"总共生成了 {len(G_snapshots)} 个快照。")
 
 #嵌入构造特征向量
 embedder_class = get_embedder_by_name("prographer")
-# 【修改】传递序列长度参数到embedder
 embedder = embedder_class(G_snapshots, sequence_length=SEQUENCE_LENGTH)
 embedder.train()
 snapshot_embeddings = embedder.get_snapshot_embeddings()

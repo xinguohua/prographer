@@ -51,23 +51,16 @@ TOP_K_INDICATORS = 5
 WL_DEPTH = 4
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-# --- 4. 辅助函数 (不变) ---
-def save_snapshot_nodes_to_file(all_snapshots, output_dir="d:/prographer/process"):
+
+def save_snapshot_nodes_to_file(all_snapshots, output_file="snapshot.txt"):
     """将每个快照中的节点信息保存到txt文件"""
-    import os
     from datetime import datetime
-    
-    # 创建输出文件路径
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_dir, f"snapshot_nodes_{timestamp}.txt")
-    
     print(f"\n--- 保存快照节点信息到文件 ---")
     print(f"输出文件: {output_file}")
     
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write("=== ProGrapher 快照节点详情报告 ===\n")
-            f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"总快照数: {len(all_snapshots)}\n")
             f.write("=" * 60 + "\n\n")
             
@@ -84,6 +77,7 @@ def save_snapshot_nodes_to_file(all_snapshots, output_dir="d:/prographer/process
                 for v in snapshot.vs:
                     node_name = v['name']
                     node_type = v.attributes().get('type_name', 'UNKNOWN')
+                    node_counts = v.attributes().get('frequency', 'UNKNOWN')
                     label = v.attributes().get('label', 0)
                     
                     # 统计节点类型
@@ -95,7 +89,7 @@ def save_snapshot_nodes_to_file(all_snapshots, output_dir="d:/prographer/process
                     
                     # 写入节点信息
                     status = "🔴恶意" if label == 1 else "🟢正常"
-                    f.write(f"    {node_name} | 类型:{node_type} | 状态:{status}\n")
+                    f.write(f"    {node_name} | 类型:{node_type} | 状态:{status} ｜ 频率:{node_counts}\n")
                 
                 # 写入统计信息
                 f.write(f"  统计信息:\n")
@@ -437,29 +431,28 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
     handler.load()
     handler.build_graph()
     all_snapshots = handler.snapshots
-    if not all_snapshots:
+    mal_snapshots = handler.snapshots[handler.malicious_idx_start:handler.malicious_idx_end+1]
+    if not mal_snapshots:
         print("错误: 未能构建任何快照。")
         return
         
     # 保存快照节点信息到文件
-    save_snapshot_nodes_to_file(all_snapshots)
+    save_snapshot_nodes_to_file(mal_snapshots)
     
-    true_labels = get_true_snapshot_labels(all_snapshots)
+    true_labels = get_true_snapshot_labels(mal_snapshots)
     
     print(f"\n--- 调试信息 ---")
-    print(f"总快照数: {len(all_snapshots)}")
+    print(f"总快照数: {len(mal_snapshots)}")
     print(f"真实标签数: {len(true_labels)}")
     print(f"真实标签内容: {true_labels}")
-
-    print(f"✅ 将评估所有 {len(all_snapshots)} 个快照")
+    print(f"✅ 将评估所有 {len(mal_snapshots)} 个快照")
     
     print("\n--- 加载预训练的编码器 ---")
     embedder = ProGrapherEmbedder.load(encoder_model_path, snapshot_sequence=all_snapshots)
     snapshot_embeddings = embedder.get_snapshot_embeddings()
     rsg_embeddings, rsg_vocab = embedder.get_rsg_embeddings()
     print(f"RSG嵌入加载完毕，词汇大小: {len(rsg_vocab)}")
-    
-    # 【关键修改】无论快照数量多少，都进行异常检测
+
     pred_labels, diff_vectors = predict_anomalous_snapshots(
         snapshot_embeddings[handler.malicious_idx_start:handler.malicious_idx_end+1], detector_model_path
     )
@@ -509,7 +502,7 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
     print("="*50)
     
     # generate_key_indicators(all_snapshots, diff_vectors, rsg_embeddings, rsg_vocab)
-    # print_debug_info(all_snapshots, eval_true, eval_pred, 0)  # 从索引0开始
+    print_debug_info(mal_snapshots, eval_true, eval_pred, 0)  # 从索引0开始
 
 # --- 主程序入口 ---
 if __name__ == '__main__':
