@@ -10,13 +10,14 @@ class BaseProcessor(ABC):
         self.all_file2pro = {}  # 文件 UUID → 属性字符串
         self.all_labels = []
         self.total_loaded_bytes = 0
-        self.begin  = []  # RCNN  begin
-        self.malicious = []  # Test macilous
+        ###########
+        self.begin  = []
+        self.malicious = []
+        self.snapshots = []
         self.benign_idx_start = 0
         self.benign_idx_end = 0
         self.malicious_idx_start = 0
         self.malicious_idx_end = 0
-        self.snapshots = []
         self.snapshot_to_nodes_map = {}
 
 
