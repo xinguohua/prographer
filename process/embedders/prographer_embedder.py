@@ -26,7 +26,8 @@ class ProGrapherEmbedder(GraphEmbedderBase):
                  neg_samples=15,
                  # --- Training Hyperparameters ---
                  learning_rate=1e-3,
-                 epochs=3,
+                 # epochs=3,
+                 epochs=1,
                  weight_decay=1e-5,
                  # --- 新增：序列长度参数 ---
                  sequence_length=12

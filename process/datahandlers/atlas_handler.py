@@ -100,7 +100,7 @@ class ATLASHandler(BaseProcessor):
             first_flag = True
             snapshot_size = 300
             forgetting_rate = 0.3
-            start_idx = len(self.snapshots) -1
+            start_idx = len(self.snapshots)
             # --- 排序 ---
             sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
 

@@ -96,11 +96,17 @@ def train_model(
     if snapshot_embeddings_tensor.size(0) <= sequence_length_L:
         raise ValueError(f"快照数量 {len(snapshot_embeddings_tensor)} 不足以构成一个长度为 {sequence_length_L} 的序列")
 
-    def make_windows(x, L):
+    def make_windows(x, L, pad_value=0.0):
+        if len(x) < L:
+            # 不够长时 pad 成一个窗口
+            pad_len = L - len(x)
+            padded = torch.cat([x, torch.full((pad_len, x.shape[1]), pad_value, device=x.device)])
+            return padded.unsqueeze(0), x[-1:].unsqueeze(0)  # shape: (1, L, dim), (1, dim)
+
         seqs, tars = [], []
-        for i in range(len(x) - L):
+        for i in range(len(x) - L + 1):  # 注意这里 +1，保证等长也能生成 1 个窗口
             seqs.append(x[i: i + L])
-            tars.append(x[i + L])
+            tars.append(x[i + L - 1])  # 目标改成窗口的最后一个（更常见）
         return torch.stack(seqs), torch.stack(tars)
 
     split_idx = int(0.8 * len(snapshot_embeddings_tensor))
