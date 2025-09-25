@@ -171,7 +171,7 @@ class DARPAHandler(BaseProcessor):
         if unique_edges:
             edge_idx = [(index_map[a], index_map[b]) for (a, b) in unique_edges]
             G.add_edges(edge_idx)
-            G.es["action"] = [list(edges_map[(a, b)]) for (a, b) in unique_edges]
+            G.es["actions"] = [list(edges_map[(a, b)]) for (a, b) in unique_edges]
 
         # === 下游需要的结构 ===
         features = [nodes_props[nid] for nid in node_ids]

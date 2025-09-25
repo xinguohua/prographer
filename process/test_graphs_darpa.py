@@ -483,7 +483,16 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
         
     # 保存快照节点信息到文件
     save_snapshot_nodes_to_file(mal_snapshots)
-    
+    with open("communities.txt", "w", encoding="utf-8") as f:
+        for i, g in enumerate(mal_snapshots):
+            print(f"正在写社区 {i} ...")  # 打印进度
+            f.write(f"Community {i}:\n")
+            for v in g.vs:
+                attrs = v.attributes()
+                attr_str = ", ".join([f"{k}={v[k]}" for k in attrs])
+                f.write(f"  Vertex {v.index}: {attr_str}\n")
+            f.write("\n")
+
     true_labels = get_true_snapshot_labels(mal_snapshots)
     
     print(f"\n--- 调试信息 ---")

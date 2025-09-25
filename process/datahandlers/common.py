@@ -72,8 +72,8 @@ def extract_properties(node_id, row, action, netobj2pro, subject2pro, file2pro):
 
 def add_node_properties(nodes, node_id, properties):
     if node_id not in nodes:
-        nodes[node_id] = []
-    nodes[node_id].extend(properties)
+        nodes[node_id] =set()
+    nodes[node_id].add(properties)
 
 
 def get_or_add_node(G, node_id, node_type, properties):

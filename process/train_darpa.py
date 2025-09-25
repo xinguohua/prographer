@@ -54,6 +54,17 @@ print(f"良性快照数量: {benign_end - benign_start + 1 if benign_start != -1
 print(f"恶意快照数量: {malicious_end - malicious_start + 1 if malicious_start != -1 else 0}")
 print(f"总共生成了 {len(all_snapshots)} 个快照用于编码器训练")
 
+
+with open("communities_all.txt", "w", encoding="utf-8") as f:
+    for i, g in enumerate(all_snapshots):
+        print(f"正在写社区 {i} ...")  # 打印进度
+        f.write(f"Community {i}:\n")
+        for v in g.vs:
+            attrs = v.attributes()
+            attr_str = ", ".join([f"{k}={v[k]}" for k in attrs])
+            f.write(f"  Vertex {v.index}: {attr_str}\n")
+        f.write("\n")
+
 # 🔥 保存快照数据到文件
 print("\n--- 保存快照数据到文件 ---")
 import pickle
