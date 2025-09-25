@@ -148,58 +148,52 @@ class ProGrapherEmbedder(GraphEmbedderBase):
             total_loss = 0.0
             num_updates = 0
             shuffled_indices = np.random.permutation(num_snapshots)
-            with open("snapshot_rsg_map.txt", "w", encoding="utf-8") as fout:
-                for snapshot_idx in tqdm(shuffled_indices, desc=f"Encoder Epoch {epoch + 1}/{self.epochs}", leave=False):
-                    snapshot = self.snapshot_sequence[snapshot_idx]
+            for snapshot_idx in tqdm(shuffled_indices, desc=f"Encoder Epoch {epoch + 1}/{self.epochs}", leave=False):
+                snapshot = self.snapshot_sequence[snapshot_idx]
+                # ----------------- 正样本统计 (Counter) -----------------
+                rsg_counts = Counter()
+                for v_idx in range(len(snapshot.vs)):
+                    node_freq = snapshot.vs[v_idx]["frequency"]  # 节点频次
+                    for d in range(self.wl_depth + 1):
+                        rsg = ProGrapherEmbedder.generate_rsg(snapshot, v_idx, d)
+                        if rsg in self.rsg_vocab:
+                            rsg_counts[self.rsg_vocab[rsg]] += node_freq
+                if not rsg_counts:
+                    continue
 
-                    # ----------------- 正样本统计 (Counter) -----------------
-                    rsg_counts = Counter()
-                    for v_idx in range(len(snapshot.vs)):
-                        node_freq = snapshot.vs[v_idx]["frequency"]  # 节点频次
-                        for d in range(self.wl_depth + 1):
-                            rsg = ProGrapherEmbedder.generate_rsg(snapshot, v_idx, d)
-                            if rsg in self.rsg_vocab:
-                                rsg_counts[self.rsg_vocab[rsg]] += node_freq
-                    if not rsg_counts:
-                        continue
+                # ---------------------------------------------------------
 
-                    # fout.write(f"Snapshot {snapshot_idx}:\n")
-                    # for rsg_id, freq in rsg_counts.items():
-                    #     fout.write(f"  RSG {rsg_id} RSG_VOC {self.rsg_vocab[rsg_id]}-> freq={freq}\n")
-                    # fout.write("\n")
-                    # ---------------------------------------------------------
+                # ------------------ 遍历每个正样本 -------------------
+                for rsg_id, freq in rsg_counts.items():
+                    # 负采样
+                    neg_sample_ids = []
+                    while len(neg_sample_ids) < self.neg_samples:
+                        sample = np.random.randint(0, num_rsgs)
+                        if sample != rsg_id and sample not in rsg_counts:  # 排除正样本
+                            neg_sample_ids.append(sample)
 
-                    # ------------------ 遍历每个正样本 -------------------
-                    for rsg_id, freq in rsg_counts.items():
-                        # 负采样
-                        neg_sample_ids = []
-                        while len(neg_sample_ids) < self.neg_samples:
-                            sample = np.random.randint(0, num_rsgs)
-                            if sample != rsg_id and sample not in rsg_counts:  # 排除正样本
-                                neg_sample_ids.append(sample)
+                    target_ids = torch.LongTensor([rsg_id] + neg_sample_ids).to(self.device)
+                    labels = torch.FloatTensor([1.0] + [0.0] * self.neg_samples).to(self.device)
+                    snapshot_id_tensor = torch.LongTensor([snapshot_idx]).to(self.device)
 
-                        target_ids = torch.LongTensor([rsg_id] + neg_sample_ids).to(self.device)
-                        labels = torch.FloatTensor([1.0] + [0.0] * self.neg_samples).to(self.device)
-                        snapshot_id_tensor = torch.LongTensor([snapshot_idx]).to(self.device)
+                    snapshot_vec = self.snapshot_embeddings_layer(snapshot_id_tensor)  # [1, dim]
+                    rsg_vecs = self.rsg_embeddings_layer(target_ids)  # [1+neg, dim]
+                    logits = torch.sum(snapshot_vec * rsg_vecs, dim=1)  # [1+neg]
 
-                        snapshot_vec = self.snapshot_embeddings_layer(snapshot_id_tensor)  # [1, dim]
-                        rsg_vecs = self.rsg_embeddings_layer(target_ids)  # [1+neg, dim]
-                        logits = torch.sum(snapshot_vec * rsg_vecs, dim=1)  # [1+neg]
+                    # -------- loss：只对正样本乘以权重 --------
+                    raw_loss = criterion(logits, labels)  # [1+neg]
+                    weights = torch.ones_like(labels)
+                    weights[0] = math.log(1.0 + freq)  # 正样本加权，负样本权重=1
+                    loss = (raw_loss * weights).mean()
+                    # ---------------------------------------
 
-                        # -------- loss：只对正样本乘以权重 --------
-                        raw_loss = criterion(logits, labels)  # [1+neg]
-                        weights = torch.ones_like(labels)
-                        weights[0] = math.log(1.0 + freq)  # 正样本加权，负样本权重=1
-                        loss = (raw_loss * weights).mean()
-                        # ---------------------------------------
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
-                        optimizer.zero_grad()
-                        loss.backward()
-                        optimizer.step()
-
-                        total_loss += loss.item()
-                        num_updates += 1
-                    # ---------------------------------------------------------
+                    total_loss += loss.item()
+                    num_updates += 1
+                # ---------------------------------------------------------
 
             avg_loss = total_loss / num_updates if num_updates > 0 else 0
             print(f"Encoder Epoch {epoch + 1}/{self.epochs}, Average Loss: {avg_loss:.6f}")
