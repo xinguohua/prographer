@@ -1,6 +1,7 @@
 import igraph as ig
 import leidenalg as la
 from process.type_enum import ObjectType
+from collections import defaultdict
 
 resource_types = {ObjectType.NETFLOW_OBJECT.value, ObjectType.FILE_OBJECT_BLOCK.value, ObjectType.MemoryObject.value}
 
@@ -65,10 +66,10 @@ def create_process_graph():
 def set_weight(G):
     # 设置默认权重
     set_default_weight(G)
-    # 设置进程-进程权重
-    set_process_weights(G)
-    # # 设置进程-资源权重
-    set_resource_weights(G)
+    # # 设置进程-进程权重
+    # set_process_weights(G)
+    # # # 设置进程-资源权重
+    # set_resource_weights(G)
 
 
 def is_resource_dependent(G, source, target):
@@ -255,23 +256,131 @@ def print_communities(communities):
         print(f"Community {cid}: {nodes}")
 
 
+
 def detect_communities(G):
     set_weight(G)
 
     """使用 Modularity Method 执行 Leiden 社区检测"""
+    # partition = la.find_partition(G, la.CPMVertexPartition, weights='weight', resolution_parameter=0.05)
     partition = la.find_partition(G, la.ModularityVertexPartition, weights='weight')
 
     # 解析社区划分
     communities = {i: [] for i in set(partition.membership)}
+    Lcommunities = {i: [] for i in set(partition.membership)}
     for node, community_id in enumerate(partition.membership):
         communities[community_id].append(G.vs[node]["name"])
+        Lcommunities[community_id].append((G.vs[node]["name"],G.vs[node]["properties"]))
 
     print_communities(communities)
+    return communities
+
+
+# def detect_communities_with_Max(G, threshold=100, method="RB", gamma=0.1, max_iter=10):
+#     """
+#     使用 Leiden 社区检测，自动调整分辨率参数，保证所有社区 <= threshold
+#     - threshold: 社区大小上限
+#     - method: "RB" | "CPM" | "MOD"
+#     - gamma: 初始分辨率参数 (RB/CPM 有效)
+#     - max_iter: 最大迭代次数
+#     """
+#     set_weight(G)
+#
+#     communities = None  # 提前声明，避免作用域问题
+#
+#     for _ in range(max_iter):
+#         # 选择 partition 方法
+#         if method.upper() == "CPM":
+#             partition = la.find_partition(
+#                 G, la.CPMVertexPartition,
+#                 weights="weight",
+#                 resolution_parameter=gamma
+#             )
+#         elif method.upper() == "RB":
+#             partition = la.find_partition(
+#                 G, la.RBConfigurationVertexPartition,
+#                 weights="weight",
+#                 resolution_parameter=gamma
+#             )
+#         elif method.upper() == "MOD":
+#             partition = la.find_partition(
+#                 G, la.ModularityVertexPartition,
+#                 weights="weight"
+#             )
+#         else:
+#             raise ValueError(f"Unknown method {method}, must be one of RB/CPM/MOD")
+#
+#         # 解析社区
+#         communities = defaultdict(list)
+#         for node, cid in enumerate(partition.membership):
+#             communities[cid].append(G.vs[node]["name"])
+#
+#         # 判断是否满足阈值
+#         max_size = max(len(c) for c in communities.values())
+#         if max_size <= threshold:
+#             print_communities(communities)
+#             return communities
+#
+#         # 社区还太大 → 提高分辨率
+#         gamma *= 1.5
+#
+#     # 如果 max_iter 次仍不满足
+#     print("警告：达到最大迭代次数，仍有社区超过阈值")
+#     print_communities(communities)
+#     return communities
+
+
+
+def detect_communities_with_max(G, threshold=500, max_depth=2, min_size=2):
+    set_weight(G)
+
+    name_to_idx = {G.vs[i]["name"]: i for i in range(G.vcount())}
+
+    def _subgraph_by_names(names):
+        idxs = [name_to_idx[n] for n in names if n in name_to_idx]
+        return G.subgraph(idxs)
+
+    def _leiden_split(node_names, depth=0):
+        sub = _subgraph_by_names(node_names)
+        partition = la.find_partition(
+            sub, la.ModularityVertexPartition,
+            weights="weight",
+            n_iterations=-1
+        )
+
+        cid2names = defaultdict(list)
+        for v_idx, cid in enumerate(partition.membership):
+            cid2names[cid].append(sub.vs[v_idx]["name"])
+
+        refined_groups = []
+        for names in cid2names.values():
+            if len(names) > threshold and depth < max_depth:
+                refined_groups.extend(_leiden_split(names, depth + 1))
+            else:
+                refined_groups.append(names)
+        return refined_groups
+
+    # 顶层：运行并拿到所有子社区
+    all_names = G.vs["name"]
+    groups = _leiden_split(all_names, depth=0)
+
+    # 过滤掉只有 1 个节点的社区（或小于 min_size 的社区）
+    groups = [g for g in groups if len(g) >= min_size]
+
+    # 还原成连续编号
+    communities = {i: grp for i, grp in enumerate(groups)}
+
+    # 若都被过滤掉，避免打印时报错（可选）
+    if communities:
+        print_communities(communities)
+    else:
+        print("No communities (all groups smaller than min_size).")
+
     return communities
 
 def detect_communities_with_id(G):
     set_weight(G)
     """使用 Modularity Method 执行 Leiden 社区检测"""
+    # partition = la.find_partition(G, la.CPMVertexPartition, weights='weight', resolution_parameter=0.05)
     partition = la.find_partition(G, la.ModularityVertexPartition, weights='weight')
     # 解析社区划分
     communities = {i: [] for i in set(partition.membership)}
@@ -412,6 +521,227 @@ def classify_processes_by_common_ancestor(G, accessing_processes):
         visited.update(cluster)  # 标记已分类的进程
 
     return process_clusters
+
+
+# =========================================================================
+# =================== DARPA 数据集专用社区划分函数 ======================
+# =========================================================================
+
+def create_snapshots_from_separate_data(handler):
+    """
+    为 DARPA 数据集创建快照，分别处理良性和恶意数据
+    
+    参数:
+    - handler: 数据处理器，包含 begin (良性) 和 malicious (恶意) 数据
+    
+    返回:
+    - snapshots: 快照列表
+    - benign_idx_start, benign_idx_end: 良性快照索引范围
+    - malicious_idx_start, malicious_idx_end: 恶意快照索引范围
+    """
+    handler.snapshots = []
+    
+    # 1. 处理良性数据
+    #hasattr(handler, 'begin') 检查handler对象是否有begin属性
+    if hasattr(handler, 'begin') and handler.begin is not None and len(handler.begin) > 0:
+        print("===============构建良性图并检测社区=============")
+        # 使用良性数据构建图
+        benign_df = handler.begin
+        # 临时替换 use_df 来构建良性图,因为build_graph内部调用use_df构图，所以有这一步替换操作
+        original_use_df = handler.use_df
+        handler.use_df = benign_df
+        
+        # 构建良性图
+        features_b, edges_b, mapp_b, relations_b, G_benign = handler.build_graph()
+        
+        # 对良性图进行社区检测
+        benign_communities = detect_communities_with_max(G_benign)
+        
+        # 将良性社区作为良性快照,生成图对象
+        handler.benign_idx_start = len(handler.snapshots)  # 应该是0
+        for community_id, node_names in benign_communities.items():
+            try:
+                #将节点名称转换为图中的索引
+                node_indices = [G_benign.vs.find(name=name).index for name in node_names if name in [v['name'] for v in G_benign.vs]]
+                if node_indices:
+                    # 创建子图并保留所有属性
+                    community_subgraph = G_benign.subgraph(node_indices)
+                    
+                    # 确保子图包含必要的属性（特别是 frequency）
+                    if 'frequency' not in community_subgraph.vs.attributes():
+                        # 如果原图有 frequency 属性，复制过来
+                        if 'frequency' in G_benign.vs.attributes():
+                            for i, orig_idx in enumerate(node_indices):
+                                community_subgraph.vs[i]['frequency'] = G_benign.vs[orig_idx]['frequency']
+                        else:
+                            # 如果原图没有 frequency 属性，设置默认值
+                            community_subgraph.vs['frequency'] = [1] * len(community_subgraph.vs)
+                    
+                    handler.snapshots.append(community_subgraph)
+            except Exception as e:
+                print(f"警告：创建良性快照时出错: {e}")
+                pass
+        handler.benign_idx_end = len(handler.snapshots) - 1
+        print(f"生成了 {len(benign_communities)} 个良性快照")
+        
+        # 恢复原始 use_df
+        handler.use_df = original_use_df
+    else:
+        # 没有良性数据（测试模式）
+        handler.benign_idx_start = -1
+        handler.benign_idx_end = -1
+
+    # 2. 处理恶意数据
+    if hasattr(handler, 'malicious') and handler.malicious is not None and len(handler.malicious) > 0:
+        print("===============构建恶意图并检测社区=============")
+        # 使用恶意数据构建图
+        malicious_df = handler.malicious
+        # 临时替换 use_df 来构建恶意图
+        original_use_df = handler.use_df
+        handler.use_df = malicious_df
+        
+        # 构建恶意图
+        features_m, edges_m, mapp_m, relations_m, G_malicious = handler.build_graph()
+        
+        # 对恶意图进行社区检测
+        malicious_communities = detect_communities_with_max(G_malicious)
+        
+        # 将恶意社区作为恶意快照
+        handler.malicious_idx_start = len(handler.snapshots)  # 训练时应该是良性快照数量，测试时应该是0
+        for community_id, node_names in malicious_communities.items():
+            try:
+                node_indices = [G_malicious.vs.find(name=name).index for name in node_names if name in [v['name'] for v in G_malicious.vs]]
+                if node_indices:
+                    # 创建子图并保留所有属性
+                    community_subgraph = G_malicious.subgraph(node_indices)
+                    
+                    # 确保子图包含必要的属性（特别是 frequency）
+                    if 'frequency' not in community_subgraph.vs.attributes():
+                        # 如果原图有 frequency 属性，复制过来
+                        if 'frequency' in G_malicious.vs.attributes():
+                            for i, orig_idx in enumerate(node_indices):
+                                community_subgraph.vs[i]['frequency'] = G_malicious.vs[orig_idx]['frequency']
+                        else:
+                            # 如果原图没有 frequency 属性，设置默认值
+                            community_subgraph.vs['frequency'] = [1] * len(community_subgraph.vs)
+                    
+                    handler.snapshots.append(community_subgraph)
+            except Exception as e:
+                print(f"警告：创建恶意快照时出错: {e}")
+                pass
+        handler.malicious_idx_end = len(handler.snapshots) - 1
+        print(f"生成了 {len(malicious_communities)} 个恶意快照")
+        
+        # 恢复原始 use_df
+        handler.use_df = original_use_df
+    else:
+        # 没有恶意数据（训练模式）
+        handler.malicious_idx_start = -1
+        handler.malicious_idx_end = -1
+
+    print(f"总共生成了 {len(handler.snapshots)} 个快照")
+    print(f"良性快照索引范围: {handler.benign_idx_start} 到 {handler.benign_idx_end}")
+    print(f"恶意快照索引范围: {handler.malicious_idx_start} 到 {handler.malicious_idx_end}")
+    
+    # 返回快照和索引信息
+    return handler.snapshots, handler.benign_idx_start, handler.benign_idx_end, handler.malicious_idx_start, handler.malicious_idx_end
+
+
+def create_snapshots_from_mixed_data(handler):
+    """
+    为 DARPA 数据集创建快照，分别使用良性和恶意数据构建独立的图
+    注意：这里虽然叫"mixed"，但实际是分离处理的
+    """
+    print("===============开始创建快照（分离式处理）===============")
+    
+    handler.snapshots = []
+    
+    # 1. 处理良性数据 - 独立构图
+    if hasattr(handler, 'begin') and len(handler.begin) > 0:
+        print("===============构建良性图并检测社区=============")
+        # 使用良性数据构建图
+        benign_df = handler.begin
+        # 临时替换 use_df 来构建良性图
+        original_use_df = handler.use_df
+        handler.use_df = benign_df
+        
+        # 构建良性图
+        features_b, edges_b, mapp_b, relations_b, G_benign = handler.build_graph()
+        
+        # 对良性图进行社区检测
+        benign_communities = detect_communities_with_max(G_benign)
+        
+        # 将良性社区作为良性快照
+        handler.benign_idx_start = len(handler.snapshots)
+        for community_id, node_names in benign_communities.items():
+            try:
+                node_indices = [G_benign.vs.find(name=name).index for name in node_names if name in [v['name'] for v in G_benign.vs]]
+                if node_indices:
+                    community_subgraph = G_benign.subgraph(node_indices)
+                    handler.snapshots.append(community_subgraph)
+            except:
+                pass
+        handler.benign_idx_end = len(handler.snapshots) - 1
+        print(f"生成了 {len(benign_communities)} 个良性快照")
+        
+        # 恢复原始 use_df
+        handler.use_df = original_use_df
+    else:
+        handler.benign_idx_start = 0
+        handler.benign_idx_end = -1
+
+    # 2. 处理恶意数据 - 独立构图
+    if hasattr(handler, 'malicious') and len(handler.malicious) > 0:
+        print("===============构建恶意图并检测社区=============")
+        # 使用恶意数据构建图
+        malicious_df = handler.malicious
+        # 临时替换 use_df 来构建恶意图
+        original_use_df = handler.use_df
+        handler.use_df = malicious_df
+        
+        # 构建恶意图
+        features_m, edges_m, mapp_m, relations_m, G_malicious = handler.build_graph()
+        
+        # 对恶意图进行社区检测
+        malicious_communities = detect_communities_with_max(G_malicious)
+        
+        # 将恶意社区作为恶意快照
+        handler.malicious_idx_start = len(handler.snapshots)
+        for community_id, node_names in malicious_communities.items():
+            try:
+                node_indices = [G_malicious.vs.find(name=name).index for name in node_names if name in [v['name'] for v in G_malicious.vs]]
+                if node_indices:
+                    community_subgraph = G_malicious.subgraph(node_indices)
+                    handler.snapshots.append(community_subgraph)
+            except:
+                pass
+        handler.malicious_idx_end = len(handler.snapshots) - 1
+        print(f"生成了 {len(malicious_communities)} 个恶意快照")
+        
+        # 恢复原始 use_df
+        handler.use_df = original_use_df
+    else:
+        handler.malicious_idx_start = len(handler.snapshots)
+        handler.malicious_idx_end = len(handler.snapshots) - 1
+
+    print(f"===============快照创建完成===============")
+    print(f"总共生成了 {len(handler.snapshots)} 个快照")
+    print(f"良性快照索引范围: {handler.benign_idx_start} 到 {handler.benign_idx_end}")
+    print(f"恶意快照索引范围: {handler.malicious_idx_start} 到 {handler.malicious_idx_end}")
+    
+    if handler.benign_idx_end >= handler.benign_idx_start:
+        print(f"良性快照数量: {handler.benign_idx_end - handler.benign_idx_start + 1}")
+    else:
+        print(f"良性快照数量: 0")
+        
+    if handler.malicious_idx_end >= handler.malicious_idx_start:
+        print(f"恶意快照数量: {handler.malicious_idx_end - handler.malicious_idx_start + 1}")
+    else:
+        print(f"恶意快照数量: 0")
+    
+    # 返回快照和索引信息
+    return handler.snapshots, handler.benign_idx_start, handler.benign_idx_end, handler.malicious_idx_start, handler.malicious_idx_end
+
 
 # test
 # G = create_process_graph()

@@ -11,106 +11,110 @@ from .type_enum import ObjectType
 
 
 class DARPAHandler(BaseProcessor):
-    def __init__(self, base_path=None, train=True):
-        """保持原有初始化，只添加快照相关变量"""
-        super().__init__(base_path, train)
-        # 新增：用于快照生成的变量
-        self.snapshots = []
-        self.cache_graph = ig.Graph(directed=True)
-        self.node_timestamps = {}
-        self.first_flag = True
-        # 新增：场景映射
-        self.scene_names_in_order = []
-        self.all_dfs_map = {}
-
-    def load(self):
-        """保持您原有的 load 逻辑，只修改编码问题"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 用于按图（场景）分开存储其对应的恶意标签
+        self.graph_to_label = {}
+        self.all_netobj2pro = {}
+        self.all_subject2pro = {}
+        self.all_file2pro = {}
+        self.total_loaded_bytes = 0
+        self.all_dfs = []
+    
+    def load(self, load_all_for_encoder=False):
+        """
+        加载 DARPA 数据集 - 仿照原逻辑，但按 benign/malicious 文件夹分开处理
+        
+        参数:
+        - load_all_for_encoder: 如果为True，加载全部数据用于编码器训练；如果为False，按原逻辑加载
+        """
+        # 初始化数据属性
+        self.begin = None
+        self.malicious = None
+        
         json_map = collect_json_paths(self.base_path)
         label_map = collect_label_paths(self.base_path)
+        
+        # 清空缓存
+        self.all_labels.clear()
+        
         for scene, category_data in json_map.items():
-            # TODO: for test - 改为 theia33
-            if scene != "theia33":
+            # TODO: for test
+            if scene != "cadets314":
                 continue
-
-            # 记录场景名称
-            if scene not in self.scene_names_in_order:
-                self.scene_names_in_order.append(scene)
-
-            if self.train == False:
+                
+            # 处理标签（测试模式）
+            if self.train == True:
                 if scene in label_map:
                     label_file = open(label_map[scene])
                     print(f"正在处理: 场景={scene}, label={label_map[scene]}")
                     self.all_labels.extend([
                         line.strip() for line in label_file.read().splitlines() if line.strip()
                     ])
-
-            scene_dfs = []  # 收集当前场景的所有数据
-
+                    
             for category, json_files in category_data.items():
-                #  训练只处理良性类别
-                if self.train and category != "benign":
-                    continue
-                #  测试只处理恶意类别
-                if self.train != True and category == "benign":
-                    continue
+                # 如果是编码器训练模式，加载全部数据
+                if load_all_for_encoder:
+                    # 编码器训练模式：不跳过任何类别，加载全部数据
+                    pass
+                else:
+                    # 原有的过滤逻辑
+                    # 训练只处理良性类别
+                    if self.train and category != "benign":
+                        continue
+                    # 测试只处理恶意类别
+                    if self.train != True and category == "benign":
+                        continue
 
                 print(f"正在处理: 场景={scene}, 类别={category}, 文件={json_files}")
                 scene_category = f"/{scene}_{category}.txt"
                 f = open(self.base_path + scene_category)
                 self.total_loaded_bytes += os.path.getsize(self.base_path + scene_category)
+                
                 # 训练分隔
                 data = f.read().split('\n')
-                # TODO:
                 data = [line.split('\t') for line in data]
-                # for test
-                # data = [line.split('\t') for line in data[:10000]]
                 df = pd.DataFrame(data, columns=['actorID', 'actor_type', 'objectID', 'object', 'action', 'timestamp'])
                 df = df.dropna()
                 df.sort_values(by='timestamp', ascending=True, inplace=True)
+                netobj2pro, subject2pro, file2pro = collect_nodes_from_log(json_files)
 
                 # 形成一个更完整的视图
-                netobj2pro, subject2pro, file2pro = collect_nodes_from_log(json_files)
-                print("==========collect_edges_from_log=======start")
-                t0 = time.time()
-                df = collect_edges_from_log(df, json_files)
-                t1 = time.time()
-                print("==========collect_edges_from_log=======end")
-                print(f"耗时: {t1 - t0:.2f} 秒")
+                #按 benign/malicious 分开存储
+                if category == "benign":
 
-                if self.train:
-                    # 只取良性前80%训练
-                    num_rows = int(len(df) * 0.9)
-                    df = df.iloc[:num_rows]
-                    scene_dfs.append(df)
-                else:
-                    # 数据选择逻辑
-                    if category == "benign":
-                        # 取后10%
-                        num_rows = int(len(df) * 0.9)
-                        df = df.iloc[num_rows:]
-                        scene_dfs.append(df)
-                    elif category == "malicious":
-                        # 使用全部
-                        scene_dfs.append(df)
-                        pass
-                    else:
-                        continue
+                    print("==========collect_edges_from_log=======start")
+                    t0 = time.time()
+                    df = collect_edges_from_log(df, json_files, True)
+                    t1 = time.time()
+                    print("==========collect_edges_from_log=======end")
+                    print(f"耗时: {t1 - t0:.2f} 秒")
+
+                    self.begin = df  # 存储到 base.py 定义的属性
+                    print(f"  - 良性数据: {len(df)} 条边")
+                elif category == "malicious":
+                    print("==========collect_edges_from_log=======start")
+                    t0 = time.time()
+                    df = collect_edges_from_log(df, json_files, False )
+                    t1 = time.time()
+                    print("==========collect_edges_from_log=======end")
+                    print(f"耗时: {t1 - t0:.2f} 秒")
+                    self.malicious = df  # 存储到 base.py 定义的属性
+                    print(f"  - 恶意数据: {len(df)} 条边")
+                
+                # 合并到总数据集（用于 use_df）
+                self.all_dfs.append(df)
+                
                 merge_properties(netobj2pro, self.all_netobj2pro)
                 merge_properties(subject2pro, self.all_subject2pro)
                 merge_properties(file2pro, self.all_file2pro)
-
-            # 合并当前场景的所有数据
-            if scene_dfs:
-                scene_combined_df = pd.concat(scene_dfs, ignore_index=True)
-                self.all_dfs_map[scene] = scene_combined_df
-                self.all_dfs.append(scene_combined_df)  # 保持原有逻辑
-
+                
         # 训练用的数据集
         use_df = pd.concat(self.all_dfs, ignore_index=True)
         self.use_df = use_df.drop_duplicates()
 
     def build_graph(self):
-        """保持原有的图构建逻辑，同时生成快照"""
+        """构建图并返回构图信息 - 完全使用原来的逻辑"""
         use_df = self.use_df
         all_labels = set(self.all_labels)
 
@@ -121,15 +125,7 @@ class DARPAHandler(BaseProcessor):
                 _otype_cache[v] = ObjectType[v].value
             return _otype_cache[v]
 
-        nodes_props, nodes_type, edges_map = {}, {}, {}
-
-        # === 新增：快照生成相关变量 ===
-        snapshot_size = 500
-        forgetting_rate = 0.3
-        self.cache_graph = ig.Graph(directed=True)
-        self.node_timestamps = {}
-        self.first_flag = True
-        self.snapshots = []
+        nodes_props, nodes_type, edges_map, node_frequency = {}, {}, {}, {}
 
         # === 扫描 DataFrame 收集节点与边 ===
         for r in use_df.itertuples(index=False):
@@ -137,12 +133,9 @@ class DARPAHandler(BaseProcessor):
             actor_id = getattr(r, "actorID")
             object_id = getattr(r, "objectID")
 
-            # 新增：获取时间戳用于快照生成
-            timestamp = getattr(r, "timestamp", 0)
-            try:
-                timestamp = int(timestamp) if timestamp != '' else 0
-            except (ValueError, TypeError):
-                timestamp = 0
+            # 频率统计
+            node_frequency[actor_id] = node_frequency.get(actor_id, 0) + 1
+            node_frequency[object_id] = node_frequency.get(object_id, 0) + 1
 
             # actor 节点
             props_actor = extract_properties(actor_id, r, action,
@@ -161,44 +154,7 @@ class DARPAHandler(BaseProcessor):
             # 累加动作到 set
             edges_map.setdefault((actor_id, object_id), set()).add(action)
 
-            # === 新增：快照生成逻辑 ===
-            # 添加节点到缓存图
-            try:
-                self.cache_graph.vs.find(name=actor_id)
-            except ValueError:
-                actor_type_enum = ObjectType[getattr(r, "actor_type")]
-                self.cache_graph.add_vertex(name=actor_id, type=actor_type_enum.value,
-                                            type_name=actor_type_enum.name, properties=props_actor)
-            self.node_timestamps[actor_id] = timestamp
-
-            try:
-                self.cache_graph.vs.find(name=object_id)
-            except ValueError:
-                object_type_enum = ObjectType[getattr(r, "object")]
-                self.cache_graph.add_vertex(name=object_id, type=object_type_enum.value,
-                                            type_name=object_type_enum.name, properties=props_obj)
-            self.node_timestamps[object_id] = timestamp
-
-            # 添加边
-            actor_idx = self.cache_graph.vs.find(name=actor_id).index
-            object_idx = self.cache_graph.vs.find(name=object_id).index
-            if not self.cache_graph.are_connected(actor_idx, object_idx):
-                self.cache_graph.add_edge(actor_idx, object_idx, actions=action, timestamp=timestamp)
-
-            # 快照生成
-            n_nodes = len(self.cache_graph.vs)
-            if self.first_flag and n_nodes >= snapshot_size:
-                self._generate_snapshot("theia33")
-                self.first_flag = False
-            elif not self.first_flag and n_nodes >= snapshot_size * (1 + forgetting_rate):
-                self._retire_old_nodes(snapshot_size, forgetting_rate)
-                self._generate_snapshot("theia33")
-
-        # 处理剩余节点
-        if len(self.cache_graph.vs) > 0:
-            self._generate_snapshot("theia33")
-
-        # === 创建图节点（保持原有逻辑）===
+        # === 创建图节点 ===
         node_ids = list(nodes_props.keys())
         index_map = {nid: i for i, nid in enumerate(node_ids)}
 
@@ -208,15 +164,16 @@ class DARPAHandler(BaseProcessor):
         G.vs["type"] = [nodes_type.get(nid) for nid in node_ids]
         G.vs["properties"] = [nodes_props[nid] for nid in node_ids]
         G.vs["label"] = [1 if nid in all_labels else 0 for nid in node_ids]
+        G.vs["frequency"] = [node_frequency.get(nid, 0) for nid in node_ids]
 
-        # === 创建图边（保持原有逻辑）===
+        # === 创建图边 ===
         unique_edges = list(edges_map.keys())
         if unique_edges:
             edge_idx = [(index_map[a], index_map[b]) for (a, b) in unique_edges]
             G.add_edges(edge_idx)
             G.es["action"] = [list(edges_map[(a, b)]) for (a, b) in unique_edges]
 
-        # === 下游需要的结构（保持原有逻辑）===
+        # === 下游需要的结构 ===
         features = [nodes_props[nid] for nid in node_ids]
         edge_index = [[], []]
         relations_index = {}
@@ -226,43 +183,14 @@ class DARPAHandler(BaseProcessor):
             edge_index[1].append(d)
             relations_index[(s, d)] = list(edges_map[(a, b)])
 
-        # 为快照打标签
-        for snapshot in self.snapshots:
-            for v in snapshot.vs:
-                v["label"] = int(v["name"] in all_labels)
+        return features, edge_index, node_ids, relations_index, G
 
-        # 返回原有的5个值，第5个值改为快照列表，后面添加兼容性参数
-        return features, edge_index, node_ids, relations_index, self.snapshots, [], []
-
-    def _retire_old_nodes(self, snapshot_size: int, forgetting_rate: float) -> None:
-        """移除老旧节点的函数"""
-        n_nodes_to_remove = int(snapshot_size * forgetting_rate)
-        if n_nodes_to_remove <= 0:
-            return
-        sorted_nodes = sorted(self.node_timestamps.items(), key=lambda item: item[1])
-        nodes_to_remove = [node_id for node_id, _ in sorted_nodes[:n_nodes_to_remove]]
-        try:
-            indices_to_remove = [self.cache_graph.vs.find(name=name).index for name in nodes_to_remove]
-            self.cache_graph.delete_vertices(indices_to_remove)
-        except ValueError:
-            pass
-        for node_id in nodes_to_remove:
-            if node_id in self.node_timestamps:
-                del self.node_timestamps[node_id]
-
-    def _generate_snapshot(self, scene_name) -> None:
-        """生成快照"""
-        snapshot = self.cache_graph.copy()
-        self.snapshots.append(snapshot)
-
-# 其他函数保持不变...
 def collect_nodes_from_log(paths):
     netobj2pro = {}
     subject2pro = {}
     file2pro = {}
     for p in paths:
-        # 修复编码问题
-        with open(p, encoding='utf-8', errors='ignore') as f:
+        with open(p) as f:
             for line in f:
                 # --- NetFlowObject ---
                 if '{"datum":{"com.bbn.tc.schema.avro.cdm18.NetFlowObject"' in line:
@@ -317,11 +245,15 @@ def collect_nodes_from_log(paths):
 
     return netobj2pro, subject2pro, file2pro
 
-def collect_edges_from_log(d, paths):
+
+def collect_edges_from_log(d, paths, benigin, max_lines= 100000):
     info = []
     for p in paths:
         with open(p, "rb") as f:
-            for line in f:
+            for i, line in enumerate(f):
+
+                if benigin and i >= max_lines:
+                    break
                 if b"EVENT" not in line:
                     continue
                 try:
@@ -373,5 +305,3 @@ def extract_properties(node_id, row, action, netobj2pro, subject2pro, file2pro):
         exec_cmd = getattr(row, "exec", "")
         path_val = getattr(row, "path", "")
         return " ".join([exec_cmd, action] + ([path_val] if path_val else []))
-
-

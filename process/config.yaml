@@ -4,7 +4,7 @@ local:
   malicious_intervals: "D:/prographer/malicious_intervals.txt"
   path_map:
     theia: "D:/data_files/theia"
-    cadets: "D:/Flash-IDS/data_files/cadets"
+    cadets: "D:/data_files/cadets"
     clearscope: "D:/Flash-IDS/data_files/clearscope"
     trace: "D:/Flash-IDS/data_files/trace"
     atlas: "D:/atlas_data_short"
@@ -15,7 +15,7 @@ remote:
   malicious_intervals: "/home/nsas2020/fuzz/prographer/malicious_intervals.txt"
   path_map:
     theia: "/mnt/bigdata/aptdata/data_files/theia"
-    cadets: "/home/nsas2020/fuzz/Flash-IDS/data_files/cadets"
+    cadets: "/mnt/bigdata/aptdata/data_files/cadets"
     clearscope: "/home/nsas2020/fuzz/Flash-IDS/data_files/clearscope"
     trace: "/home/nsas2020/fuzz/Flash-IDS/data_files/trace"
     atlas: "/mnt/bigdata/aptdata/atlas_data"
