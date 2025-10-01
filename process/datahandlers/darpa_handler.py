@@ -21,7 +21,7 @@ class DARPAHandler(BaseProcessor):
         self.total_loaded_bytes = 0
         self.all_dfs = []
     
-    def load(self, load_all_for_encoder=False):
+    def load(self):
         """
         加载 DARPA 数据集 - 仿照原逻辑，但按 benign/malicious 文件夹分开处理
         
@@ -54,18 +54,6 @@ class DARPAHandler(BaseProcessor):
                     
             for category, json_files in category_data.items():
                 # 如果是编码器训练模式，加载全部数据
-                if load_all_for_encoder:
-                    # 编码器训练模式：不跳过任何类别，加载全部数据
-                    pass
-                else:
-                    # 原有的过滤逻辑
-                    # 训练只处理良性类别
-                    if self.train and category != "benign":
-                        continue
-                    # 测试只处理恶意类别
-                    if self.train != True and category == "benign":
-                        continue
-
                 print(f"正在处理: 场景={scene}, 类别={category}, 文件={json_files}")
                 scene_category = f"/{scene}_{category}.txt"
                 f = open(self.base_path + scene_category)
@@ -246,12 +234,11 @@ def collect_nodes_from_log(paths):
     return netobj2pro, subject2pro, file2pro
 
 
-def collect_edges_from_log(d, paths, benigin, max_lines= 100000):
+def collect_edges_from_log(d, paths, benigin, max_lines= 600000):
     info = []
     for p in paths:
         with open(p, "rb") as f:
             for i, line in enumerate(f):
-
                 if benigin and i >= max_lines:
                     break
                 if b"EVENT" not in line:

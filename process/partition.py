@@ -2,6 +2,7 @@ import igraph as ig
 import leidenalg as la
 from process.type_enum import ObjectType
 from collections import defaultdict
+import re
 
 resource_types = {ObjectType.NETFLOW_OBJECT.value, ObjectType.FILE_OBJECT_BLOCK.value, ObjectType.MemoryObject.value}
 
@@ -527,6 +528,22 @@ def classify_processes_by_common_ancestor(G, accessing_processes):
 # =================== DARPA 数据集专用社区划分函数 ======================
 # =========================================================================
 
+_EVENT_TOKEN = re.compile(r'(?<!\w)EVENT[^\s]*')
+
+def _replace_event_in_value(val):
+    if isinstance(val, str):
+        return _EVENT_TOKEN.sub("chentuoyu", val)
+    elif isinstance(val, list):
+        return [_replace_event_in_value(x) for x in val]
+    elif isinstance(val, tuple):
+        return tuple(_replace_event_in_value(x) for x in val)
+    elif isinstance(val, dict):
+        return {k: _replace_event_in_value(v) for k, v in val.items()}
+    elif isinstance(val, set):
+        return {_replace_event_in_value(x) for x in val}
+    else:
+        return val  # 非字符串/容器类型原样返回
+
 def create_snapshots_from_separate_data(handler):
     """
     为 DARPA 数据集创建快照，分别处理良性和恶意数据
@@ -540,7 +557,7 @@ def create_snapshots_from_separate_data(handler):
     - malicious_idx_start, malicious_idx_end: 恶意快照索引范围
     """
     handler.snapshots = []
-    
+
     # 1. 处理良性数据
     #hasattr(handler, 'begin') 检查handler对象是否有begin属性
     if hasattr(handler, 'begin') and handler.begin is not None and len(handler.begin) > 0:
@@ -556,26 +573,22 @@ def create_snapshots_from_separate_data(handler):
         
         # 对良性图进行社区检测
         benign_communities = detect_communities_with_max(G_benign)
-        
+        print("create_snapshots_from_separate_data---benign")
+        name_to_idx_benign = {v["name"]: v.index for v in G_benign.vs}
         # 将良性社区作为良性快照,生成图对象
         handler.benign_idx_start = len(handler.snapshots)  # 应该是0
         for community_id, node_names in benign_communities.items():
             try:
-                #将节点名称转换为图中的索引
-                node_indices = [G_benign.vs.find(name=name).index for name in node_names if name in [v['name'] for v in G_benign.vs]]
+                node_indices = [name_to_idx_benign[name] for name in node_names if name in name_to_idx_benign]
                 if node_indices:
                     # 创建子图并保留所有属性
                     community_subgraph = G_benign.subgraph(node_indices)
-                    
-                    # 确保子图包含必要的属性（特别是 frequency）
-                    if 'frequency' not in community_subgraph.vs.attributes():
-                        # 如果原图有 frequency 属性，复制过来
-                        if 'frequency' in G_benign.vs.attributes():
-                            for i, orig_idx in enumerate(node_indices):
-                                community_subgraph.vs[i]['frequency'] = G_benign.vs[orig_idx]['frequency']
+
+                    if "frequency" not in community_subgraph.vs.attributes():
+                        if "frequency" in G_benign.vs.attributes():
+                            community_subgraph.vs["frequency"] = [G_benign.vs[idx]["frequency"] for idx in node_indices]
                         else:
-                            # 如果原图没有 frequency 属性，设置默认值
-                            community_subgraph.vs['frequency'] = [1] * len(community_subgraph.vs)
+                            community_subgraph.vs["frequency"] = [1] * len(node_indices)
                     
                     handler.snapshots.append(community_subgraph)
             except Exception as e:
@@ -591,6 +604,7 @@ def create_snapshots_from_separate_data(handler):
         handler.benign_idx_start = -1
         handler.benign_idx_end = -1
 
+    print("create_snapshots_from_separate_data---malicious")
     # 2. 处理恶意数据
     if hasattr(handler, 'malicious') and handler.malicious is not None and len(handler.malicious) > 0:
         print("===============构建恶意图并检测社区=============")
@@ -607,25 +621,42 @@ def create_snapshots_from_separate_data(handler):
         malicious_communities = detect_communities_with_max(G_malicious)
         
         # 将恶意社区作为恶意快照
-        handler.malicious_idx_start = len(handler.snapshots)  # 训练时应该是良性快照数量，测试时应该是0
+        name_to_idx_malicious = {v["name"]: v.index for v in G_malicious.vs}
+        handler.malicious_idx_start = len(handler.snapshots)  # 训练时=良性快照数量, 测试时=0
         for community_id, node_names in malicious_communities.items():
             try:
-                node_indices = [G_malicious.vs.find(name=name).index for name in node_names if name in [v['name'] for v in G_malicious.vs]]
-                if node_indices:
-                    # 创建子图并保留所有属性
-                    community_subgraph = G_malicious.subgraph(node_indices)
-                    
-                    # 确保子图包含必要的属性（特别是 frequency）
-                    if 'frequency' not in community_subgraph.vs.attributes():
-                        # 如果原图有 frequency 属性，复制过来
-                        if 'frequency' in G_malicious.vs.attributes():
-                            for i, orig_idx in enumerate(node_indices):
-                                community_subgraph.vs[i]['frequency'] = G_malicious.vs[orig_idx]['frequency']
-                        else:
-                            # 如果原图没有 frequency 属性，设置默认值
-                            community_subgraph.vs['frequency'] = [1] * len(community_subgraph.vs)
-                    
-                    handler.snapshots.append(community_subgraph)
+                # 用哈希表直接找索引，避免反复遍历 vs
+                node_indices = [name_to_idx_malicious[name] for name in node_names if name in name_to_idx_malicious]
+                if not node_indices:
+                    continue
+
+                # 创建子图
+                community_subgraph = G_malicious.subgraph(node_indices)
+
+                # 判断是否恶意社区（向量化访问 label）
+                labels = community_subgraph.vs["label"] if "label" in community_subgraph.vs.attributes() else []
+                malicious_nodes = sum(lbl == 1 for lbl in labels)
+
+                if malicious_nodes > 0:
+                    print(f"社区 {community_id} 是恶意社区 (恶意节点数={malicious_nodes})")
+
+                    # 属性值替换（包含 "Event" 的子串）
+                    for v in community_subgraph.vs:
+                        for attr, old_val in v.attributes().items():
+                            new_val = _replace_event_in_value(old_val)
+                            if new_val != old_val:  # 用 != 代替 is not，更语义化
+                                print(f"malicous val ===== change old_val {old_val} -> {new_val}")
+                                v[attr] = new_val
+
+                # frequency 批量赋值
+                if "frequency" not in community_subgraph.vs.attributes():
+                    if "frequency" in G_malicious.vs.attributes():
+                        community_subgraph.vs["frequency"] = [G_malicious.vs[idx]["frequency"] for idx in node_indices]
+                    else:
+                        community_subgraph.vs["frequency"] = [1] * len(node_indices)
+
+                handler.snapshots.append(community_subgraph)
+
             except Exception as e:
                 print(f"警告：创建恶意快照时出错: {e}")
                 pass

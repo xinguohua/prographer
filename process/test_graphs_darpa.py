@@ -485,13 +485,13 @@ def run_snapshot_level_evaluation(detector_model_path, encoder_model_path, PATH_
     save_snapshot_nodes_to_file(mal_snapshots)
     with open("communities.txt", "w", encoding="utf-8") as f:
         for i, g in enumerate(mal_snapshots):
-            print(f"正在写社区 {i} ...")  # 打印进度
             f.write(f"Community {i}:\n")
             for v in g.vs:
                 attrs = v.attributes()
                 attr_str = ", ".join([f"{k}={v[k]}" for k in attrs])
                 f.write(f"  Vertex {v.index}: {attr_str}\n")
             f.write("\n")
+        print(f"保存社区到communities.txt")  # 打印进度
 
     true_labels = get_true_snapshot_labels(mal_snapshots)
     
@@ -607,7 +607,7 @@ if __name__ == '__main__':
     PATH_MAP = env_config["path_map"]
 
     # 【新增】可自定义的参数
-    SEQUENCE_LENGTH = 6        # 序列长度，可以修改
+    SEQUENCE_LENGTH = 12       # 序列长度，可以修改
 
     print(f"使用参数: 序列长度={SEQUENCE_LENGTH}")
 

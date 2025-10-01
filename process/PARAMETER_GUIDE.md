@@ -51,7 +51,7 @@ embedder = ProGrapherEmbedder(G_snapshots, sequence_length=16)
 
 ### 训练 (序列长度=16)
 ```python
-# 在 train.py 中修改
+# 在 base.py 中修改
 SEQUENCE_LENGTH = 16
 ```
 

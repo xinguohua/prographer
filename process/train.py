@@ -50,6 +50,5 @@ print("\n--- Encoder process finished ---")
 print(f"已生成快照嵌入序列，形状为: {snapshot_embeddings.shape}")
 print(f"已生成RSG嵌入矩阵，形状为: {rsg_embeddings.shape}")
 print(f"RSG词汇表大小: {len(rsg_vocab)}")
-# 模型训练
 
 train_model(snapshot_embeddings[data_handler.benign_idx_start:data_handler.benign_idx_end+1], sequence_length_L=SEQUENCE_LENGTH)

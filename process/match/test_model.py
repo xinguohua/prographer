@@ -6,7 +6,7 @@ import numpy as np
 import os
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-# AnomalyDetector 类的定义需要和 train.py 中的保持一致
+# AnomalyDetector 类的定义需要和 base.py 中的保持一致
 # 为了代码独立性，我们在这里重新定义一遍
 class AnomalyDetector(nn.Module):
     def __init__(self, embedding_dim, hidden_dim, num_layers, dropout):

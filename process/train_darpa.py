@@ -35,7 +35,7 @@ print("="*60)
 
 # 获取数据集用于编码器训练（加载全部数据）
 encoder_handler = get_handler("cadets", True, PATH_MAP)  # train=True，但会加载全部数据
-encoder_handler.load(load_all_for_encoder=True)  # 使用新参数加载全部数据
+encoder_handler.load()  # 使用新参数加载全部数据
 
 # 使用全部数据创建快照
 all_snapshots, benign_start, benign_end, malicious_start, malicious_end = create_snapshots_from_separate_data(encoder_handler)
@@ -57,13 +57,13 @@ print(f"总共生成了 {len(all_snapshots)} 个快照用于编码器训练")
 
 with open("communities_all.txt", "w", encoding="utf-8") as f:
     for i, g in enumerate(all_snapshots):
-        print(f"正在写社区 {i} ...")  # 打印进度
         f.write(f"Community {i}:\n")
         for v in g.vs:
             attrs = v.attributes()
             attr_str = ", ".join([f"{k}={v[k]}" for k in attrs])
             f.write(f"  Vertex {v.index}: {attr_str}\n")
         f.write("\n")
+    print(f"communities_all write completed {i} ...")  # 打印进度
 
 # 🔥 保存快照数据到文件
 print("\n--- 保存快照数据到文件 ---")
