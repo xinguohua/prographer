@@ -18,7 +18,6 @@ class BaseProcessor(ABC):
         self.benign_idx_end = 0
         self.malicious_idx_start = 0
         self.malicious_idx_end = 0
-        self.snapshot_to_nodes_map = {}
 
 
     @abstractmethod
@@ -26,7 +25,6 @@ class BaseProcessor(ABC):
         """加载原始数据，返回预处理好的 DataFrame 以及属性映射字典"""
         pass
 
-    @abstractmethod
     def build_graph(self):
         """构建图及其语料"""
         pass

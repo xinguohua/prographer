@@ -4,4 +4,4 @@
 *.pkl
 
 # 忽略有 pth 文件
-*.pth
+*.pthprocess/atlas_model/prographer_encoder.pth
