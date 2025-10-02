@@ -1,1 +1,7 @@
-*.pthprocess/rsg_vocab.txt
+# 忽略所有 txt 文件
+*.txt
+# 忽略所有 pkl 文件
+*.pkl
+
+# 忽略有 pth 文件
+*.pth
