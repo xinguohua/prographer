@@ -32,12 +32,12 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # ========================================================================
 # 工具函数
 # ========================================================================
-def save_snapshot_nodes(all_snapshots, output_file: Path = Path("snapshot.txt")) -> Optional[Path]:
+def save_snapshot_nodes(all_snapshots, output_file: Path = Path("test_snapshot.txt")) -> Optional[Path]:
     """保存快照节点信息到文件"""
     print(f"[INFO] 保存快照节点信息到: {output_file}")
     try:
         with output_file.open("w", encoding="utf-8") as f:
-            f.write("=== ProGrapher 快照节点详情报告 ===\n")
+            f.write("=== 测试快照节点详情报告 ===\n")
             f.write(f"总快照数: {len(all_snapshots)}\n")
             f.write("=" * 60 + "\n\n")
 
@@ -48,17 +48,28 @@ def save_snapshot_nodes(all_snapshots, output_file: Path = Path("snapshot.txt"))
                 f.write("  节点详情:\n")
 
                 node_type_count = defaultdict(int)
-                malicious_count = sum(v["label"] == 1 for v in snapshot.vs)
+                malicious_count = sum(v.attributes().get("label", 0) == 1 for v in snapshot.vs)
 
                 for v in snapshot.vs:
-                    node_name = v["name"]
-                    node_type = v.attributes().get("type_name", "UNKNOWN")
-                    freq = v.attributes().get("frequency", "UNKNOWN")
-                    label = v.attributes().get("label", 0)
+                    attrs = v.attributes()
+                    node_name = attrs.get("name", "UNKNOWN")
+                    node_type = attrs.get("type", "UNKNOWN")
+                    label = attrs.get("label", 0)
 
+                    # 更新类型统计
                     node_type_count[node_type] += 1
+
+                    # 状态
                     status = "🔴恶意" if label == 1 else "🟢正常"
-                    f.write(f"    {node_name} | 类型:{node_type} | 状态:{status} ｜ 频率:{freq}\n")
+
+                    # 除了 name/label，其余属性全打印出来
+                    extra_attrs = {k: v for k, v in attrs.items() if k not in ("name", "label", "type")}
+                    extra_str = " | ".join(f"{k}:{v}" for k, v in extra_attrs.items())
+
+                    f.write(f"    {node_name} | 类型:{node_type} | 状态:{status}")
+                    if extra_str:
+                        f.write(" | " + extra_str)
+                    f.write("\n")
 
                 f.write(f"  恶意节点数: {malicious_count}/{len(snapshot.vs)}\n")
                 f.write("  节点类型分布:\n")
@@ -293,8 +304,6 @@ def run_evaluation(detector_model_path: Path, encoder_model_path: Path, path_map
     if not mal_snapshots:
         print("[ERROR] 未能构建快照")
         return
-
-    # 保存快照节点信息到文件
     save_snapshot_nodes(mal_snapshots)
     true_labels = get_true_labels(mal_snapshots)
 

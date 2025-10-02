@@ -103,7 +103,7 @@ class DARPAHandler(BaseProcessor):
         use_df = pd.concat(self.all_dfs, ignore_index=True)
         self.use_df = use_df.drop_duplicates()
 
-    def create_snapshots_from_graph(self, df, is_malicious=False, mode="community"):
+    def create_snapshots_from_graph(self, df, is_malicious=False, mode="time"):
         """
         通用快照生成函数
         - mode: "community" 或 "time"
@@ -225,17 +225,18 @@ class DARPAHandler(BaseProcessor):
         return features, edge_index, node_ids, relations_index, G
 
     def _process_subgraph(self, subgraph, is_malicious=False, cid=None):
-        if is_malicious:
-            labels = subgraph.vs["label"] if "label" in subgraph.vs.attributes() else []
-            mal_nodes = sum(lbl == 1 for lbl in labels)
-            if mal_nodes > 0:
-                print(f"社区 {cid} 是恶意社区 (恶意节点数={mal_nodes})")
-                for v in subgraph.vs:
-                    for attr, old_val in v.attributes().items():
-                        new_val = _replace_event_in_value(old_val)
-                        if new_val != old_val:
-                            print(f"malicious val ===== change {old_val} -> {new_val}")
-                            v[attr] = new_val
+        pass
+        # if is_malicious:
+        #     labels = subgraph.vs["label"] if "label" in subgraph.vs.attributes() else []
+        #     mal_nodes = sum(lbl == 1 for lbl in labels)
+        #     if mal_nodes > 0:
+        #         print(f"社区 {cid} 是恶意社区 (恶意节点数={mal_nodes})")
+        #         for v in subgraph.vs:
+        #             for attr, old_val in v.attributes().items():
+        #                 new_val = _replace_event_in_value(old_val)
+        #                 if new_val != old_val:
+        #                     print(f"malicious val ===== change {old_val} -> {new_val}")
+        #                     v[attr] = new_val
 
 
 
