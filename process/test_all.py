@@ -3,13 +3,12 @@ import textwrap
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Tuple, Optional
-
+import pickle
+import os
 import numpy as np
 import torch
-import torch.nn.functional as F
 import yaml
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from tqdm import tqdm
 
 from process.classfy import get_classfy
 
@@ -270,12 +269,27 @@ def predict_snapshots(
 
 
 def run_evaluation(detector_model_path: Path, encoder_model_path: Path, path_map: dict) -> None:
-    handler = get_handler("atlas", False, path_map)
-    handler.load()
-    handler.build_graph()
+    snapshot_file = "snapshot_data.pkl"
+    if not os.path.exists(snapshot_file):
+        print(f"❌ 错误：快照数据文件不存在: {snapshot_file}")
+        print("请先运行 train_darpa.py 来生成快照数据")
+        return
 
-    all_snapshots = handler.snapshots
-    mal_snapshots = all_snapshots[handler.malicious_idx_start: handler.malicious_idx_end + 1]
+    with open(snapshot_file, 'rb') as f:
+        snapshot_data = pickle.load(f)
+
+    # 提取快照数据
+    all_snapshots = snapshot_data['all_snapshots']
+    benign_idx_start = snapshot_data['benign_idx_start']
+    benign_idx_end = snapshot_data['benign_idx_end']
+    malicious_idx_start = snapshot_data['malicious_idx_start']
+    malicious_idx_end = snapshot_data['malicious_idx_end']
+
+    print(f"✅ 快照数据加载成功:")
+    print(f"  - 总快照数: {len(all_snapshots)}")
+    print(f"  - 良性快照范围: {benign_idx_start} 到 {benign_idx_end}")
+    print(f"  - 恶意快照范围: {malicious_idx_start} 到 {malicious_idx_end}")
+    mal_snapshots = all_snapshots[malicious_idx_start: malicious_idx_end + 1]
     if not mal_snapshots:
         print("[ERROR] 未能构建快照")
         return
@@ -294,7 +308,7 @@ def run_evaluation(detector_model_path: Path, encoder_model_path: Path, path_map
     snapshot_embeddings = embedder.get_snapshot_embeddings()
 
     pred_labels, diff_vectors = predict_snapshots(
-        snapshot_embeddings[handler.malicious_idx_start: handler.malicious_idx_end + 1],
+        snapshot_embeddings[malicious_idx_start: malicious_idx_end + 1],
         detector_model_path,
     )
     print(f"检测到 {len(diff_vectors)} 个异常快照")

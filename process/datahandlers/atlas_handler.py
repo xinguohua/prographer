@@ -84,98 +84,80 @@ class ATLASHandler(BaseProcessor):
         if not self.train:
             print(f"共找到 {len(self.all_labels)} 个唯一恶意标签: {self.all_labels}")
 
-    def build_graph(self):
-        def run_one(dataset_name, df):
-            """给定一个 df，独立跑快照生成"""
-            if df is None or len(df) == 0:
-                print(f"[WARN] {dataset_name} 数据为空，跳过。")
-                return None
+    def create_snapshots_from_graph(self, df, is_malicious):
+        snapshots = []
+        if df is None or len(df) == 0:
+            return []
 
-            node_frequency = {}
-            node_timestamps = {}
-            cache_graph = ig.Graph(directed=True)
-            first_flag = True
-            snapshot_size = 300
-            forgetting_rate = 0.3
-            start_idx = len(self.snapshots)
-            # --- 排序 ---
-            sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
+        node_frequency = {}
+        node_timestamps = {}
+        cache_graph = ig.Graph(directed=True)
+        first_flag = True
+        snapshot_size = 300
+        forgetting_rate = 0.3
+        # --- 排序 ---
+        sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
 
-            # --- 遍历每条边 ---
-            for _, row in sorted_df.iterrows():
-                actor_id, object_id = row["actorID"], row["objectID"]
-                action = row["action"]
-                timestamp = row.get("timestamp", 0)
+        # --- 遍历每条边 ---
+        for _, row in sorted_df.iterrows():
+            actor_id, object_id = row["actorID"], row["objectID"]
+            action = row["action"]
+            timestamp = row.get("timestamp", 0)
 
-                # 频率统计
-                node_frequency[actor_id] = node_frequency.get(actor_id, 0) + 1
-                node_frequency[object_id] = node_frequency.get(object_id, 0) + 1
+            # 频率统计
+            node_frequency[actor_id] = node_frequency.get(actor_id, 0) + 1
+            node_frequency[object_id] = node_frequency.get(object_id, 0) + 1
 
-                # === 加点 ===
-                try:
-                    v_actor = cache_graph.vs.find(name=actor_id)
-                    v_actor["frequency"] = node_frequency[actor_id]
-                except ValueError:
-                    actor_type_enum = ObjectType[row['actor_type']]
-                    cache_graph.add_vertex(
-                        name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
-                        properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro,
-                                                      self.all_file2pro),
-                        label = int(any(lbl in actor_id for lbl in self.all_labels)),
-                        frequency= node_frequency[actor_id]
-                    )
-                node_timestamps[actor_id] = timestamp
+            # === 加点 ===
+            try:
+                v_actor = cache_graph.vs.find(name=actor_id)
+                v_actor["frequency"] = node_frequency[actor_id]
+            except ValueError:
+                actor_type_enum = ObjectType[row['actor_type']]
+                cache_graph.add_vertex(
+                    name=actor_id, type=actor_type_enum.value, type_name=actor_type_enum.name,
+                    properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro,
+                                                  self.all_file2pro),
+                    label = int(any(lbl in actor_id for lbl in self.all_labels)),
+                    frequency= node_frequency[actor_id]
+                )
+            node_timestamps[actor_id] = timestamp
 
-                try:
-                    v_object = cache_graph.vs.find(name=object_id)
-                    v_object["frequency"] = node_frequency[object_id]
-                except ValueError:
-                    object_type_enum = ObjectType[row['object']]
-                    cache_graph.add_vertex(
-                        name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
-                        properties=extract_properties(object_id, self.all_netobj2pro, self.all_subject2pro,
-                                                      self.all_file2pro),
-                        label = int(any(lbl in object_id for lbl in self.all_labels)),
-                        frequency= node_frequency[object_id]
-                    )
-                node_timestamps[object_id] = timestamp
+            try:
+                v_object = cache_graph.vs.find(name=object_id)
+                v_object["frequency"] = node_frequency[object_id]
+            except ValueError:
+                object_type_enum = ObjectType[row['object']]
+                cache_graph.add_vertex(
+                    name=object_id, type=object_type_enum.value, type_name=object_type_enum.name,
+                    properties=extract_properties(object_id, self.all_netobj2pro, self.all_subject2pro,
+                                                  self.all_file2pro),
+                    label = int(any(lbl in object_id for lbl in self.all_labels)),
+                    frequency= node_frequency[object_id]
+                )
+            node_timestamps[object_id] = timestamp
 
-                # === 加边 ===
-                a_idx = cache_graph.vs.find(name=actor_id).index
-                o_idx = cache_graph.vs.find(name=object_id).index
-                if not cache_graph.are_connected(a_idx, o_idx):
-                    cache_graph.add_edge(a_idx, o_idx, actions=action, timestamp=timestamp)
+            # === 加边 ===
+            a_idx = cache_graph.vs.find(name=actor_id).index
+            o_idx = cache_graph.vs.find(name=object_id).index
+            if not cache_graph.are_connected(a_idx, o_idx):
+                cache_graph.add_edge(a_idx, o_idx, actions=action, timestamp=timestamp)
 
-                # --- 快照生成逻辑 ---
-                n_nodes = len(cache_graph.vs)
-                if first_flag and n_nodes >= snapshot_size:
-                    self._generate_snapshot(cache_graph)
-                    first_flag = False
-                elif not first_flag and n_nodes >= snapshot_size * (1 + forgetting_rate):
-                    self._retire_old_nodes(snapshot_size, forgetting_rate, node_timestamps, cache_graph)
-                    self._generate_snapshot(cache_graph)
+            # --- 快照生成逻辑 ---
+            n_nodes = len(cache_graph.vs)
+            if first_flag and n_nodes >= snapshot_size:
+                self._generate_snapshot(cache_graph, snapshots)
+                first_flag = False
+            elif not first_flag and n_nodes >= snapshot_size * (1 + forgetting_rate):
+                self._retire_old_nodes(snapshot_size, forgetting_rate, node_timestamps, cache_graph)
+                self._generate_snapshot(cache_graph, snapshots)
 
-            # 收尾
-            if len(cache_graph.vs) > 0:
-                self._generate_snapshot(cache_graph)
-            end_idx = len(self.snapshots) - 1
-            return start_idx, end_idx
-        malicous_df = self.malicious
-        begin_df = self.begin
+        # 收尾
+        if len(cache_graph.vs) > 0:
+            self._generate_snapshot(cache_graph, snapshots)
+        return snapshots
 
-        self.benign_idx_start, self.benign_idx_end = run_one("textrcnn_train", begin_df)
-        self.malicious_idx_start, self.malicious_idx_end = run_one("test", malicous_df)
-        out_txt = f"snapshot_nodes.txt"
-        with open(out_txt, "w", encoding="utf-8") as f:
-            for snapshot_idx, nodes in self.snapshot_to_nodes_map.items():
-                for node in nodes:
-                    name = node.get("name", "<NA>")
-                    f.write(f"[[Snapshot {snapshot_idx}] [Node {name}] ")
-                    attrs = [f"{k}={v}" for k, v in node.items() if k != "name"]
-                    if attrs:
-                        f.write(" | ".join(attrs))
-                    f.write("\n")
-        print(f"[INFO] 已保存快照节点信息到: {out_txt}")
+
 
     def _retire_old_nodes(self, snapshot_size: int, forgetting_rate: float, node_timestamps: dict, cache_graph: Graph) -> None:
         """这个函数保持不变"""
@@ -192,18 +174,11 @@ class ATLASHandler(BaseProcessor):
             if node_id in node_timestamps:
                 del node_timestamps[node_id]
 
-    def _generate_snapshot(self, cache_graph) -> None:
-        """【修改】记录快照所属的图"""
+    def _generate_snapshot(self, cache_graph, snapshots) -> None:
         snapshot = cache_graph.copy()
-        self.snapshots.append(snapshot)
-        snapshot_idx = len(self.snapshots) - 1
-        self.snapshot_to_nodes_map[snapshot_idx] = [
-            {
-                "name": v['name'],
-                **{k: v[k] for k in v.attributes()}  # 把该节点所有属性也一起存进去
-            }
-            for v in snapshot.vs
-        ]
+        snapshots.append(snapshot)
+
+
 
 
 

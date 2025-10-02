@@ -1,18 +1,15 @@
-import os
-import sys
+import platform
 import torch
 import yaml
-import platform
+
 from datahandlers import get_handler
 from embedders import get_embedder_by_name
 from process.classfy import get_classfy
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 
 # ---------------- 配置参数 ----------------
 CONFIG_PATH = "config.yaml"
-DATASET_NAME = "atlas"          # 可切换数据集
-# DATASET_NAME = "cadets"          # 可切换数据集
+# DATASET_NAME = "atlas"          # 可切换数据集
+DATASET_NAME = "cadets"          # 可切换数据集
 EMBEDDER_NAME = "prographer"    # 嵌入器
 CLASSIFY_NAME = "prographer"     # 训练器
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -31,7 +28,6 @@ def prepare_data(path_map: dict):
     handler = get_handler(DATASET_NAME, True, path_map)
     handler.load()
     handler.build_graph()
-    print(f"[数据] 共生成 {len(handler.snapshots)} 个快照。")
     return handler
 
 

@@ -528,21 +528,7 @@ def classify_processes_by_common_ancestor(G, accessing_processes):
 # =================== DARPA 数据集专用社区划分函数 ======================
 # =========================================================================
 
-_EVENT_TOKEN = re.compile(r'(?<!\w)EVENT[^\s]*')
 
-def _replace_event_in_value(val):
-    if isinstance(val, str):
-        return _EVENT_TOKEN.sub("chentuoyu", val)
-    elif isinstance(val, list):
-        return [_replace_event_in_value(x) for x in val]
-    elif isinstance(val, tuple):
-        return tuple(_replace_event_in_value(x) for x in val)
-    elif isinstance(val, dict):
-        return {k: _replace_event_in_value(v) for k, v in val.items()}
-    elif isinstance(val, set):
-        return {_replace_event_in_value(x) for x in val}
-    else:
-        return val  # 非字符串/容器类型原样返回
 
 def create_snapshots_from_separate_data(handler):
     """

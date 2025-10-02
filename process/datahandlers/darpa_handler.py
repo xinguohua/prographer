@@ -1,13 +1,15 @@
 import os
 import re
 import time
+import numpy as np
 import igraph as ig
 import orjson
 import pandas as pd
+
 from .base import BaseProcessor
 from .common import collect_json_paths, collect_label_paths
 from .common import merge_properties, add_node_properties
-from .type_enum import ObjectType
+from process.partition import detect_communities_with_max
 
 
 class DARPAHandler(BaseProcessor):
@@ -101,22 +103,71 @@ class DARPAHandler(BaseProcessor):
         use_df = pd.concat(self.all_dfs, ignore_index=True)
         self.use_df = use_df.drop_duplicates()
 
-    def build_graph(self):
-        """构建图并返回构图信息 - 完全使用原来的逻辑"""
-        use_df = self.use_df
+    def create_snapshots_from_graph(self, df, is_malicious=False, mode="community"):
+        """
+        通用快照生成函数
+        - mode: "community" 或 "time"
+        - is_malicious: 是否恶意数据
+        """
+        if df is None or len(df) == 0:
+            return []
+
+        snapshots = []
+
+        if mode == "community":
+            # === 一次性构建全局图 ===
+            features, edges, mapp, relations, G = self._build_graph_from_df(df)
+
+            communities = detect_communities_with_max(G)
+            name_to_idx = {v["name"]: v.index for v in G.vs}
+
+            for community_id, node_names in communities.items():
+                try:
+                    node_indices = [name_to_idx[name] for name in node_names if name in name_to_idx]
+                    if not node_indices:
+                        continue
+
+                    subgraph = G.subgraph(node_indices)
+                    self._process_subgraph(subgraph, is_malicious, community_id)
+                    snapshots.append(subgraph)
+                except Exception as e:
+                    print(f"警告：创建快照时出错: {e}")
+
+
+        elif mode == "time":
+            window = pd.Timedelta(minutes=5)
+            df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+            df["timestamp"] = df["timestamp"] // 1000
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="us", errors="coerce")
+            t_min, t_max = df["timestamp"].min(), df["timestamp"].max()
+            if pd.isna(t_min) or pd.isna(t_max):
+                return []  # 没有有效时间戳，直接返回空
+            bins = pd.date_range(start=t_min, end=t_max + window, freq=window)
+
+            for i in range(len(bins) - 1):
+
+                part = df[(df["timestamp"] >= bins[i]) & (df["timestamp"] < bins[i + 1])]
+
+                if part.empty:
+                    continue
+
+                features, edges, mapp, relations, G = self._build_graph_from_df(part)
+
+                if G.vcount() == 0 or G.ecount() == 0:
+                    continue
+
+                self._process_subgraph(G, is_malicious, i)
+
+                snapshots.append(G)
+
+        return snapshots
+
+    def _build_graph_from_df(self, df):
+        """给定 DataFrame 构建 igraph.Graph，返回 (features, edges, node_ids, relations, G)"""
         all_labels = set(self.all_labels)
-
-        _otype_cache = {}
-
-        def _otype(v):
-            if v not in _otype_cache:
-                _otype_cache[v] = ObjectType[v].value
-            return _otype_cache[v]
-
         nodes_props, nodes_type, edges_map, node_frequency = {}, {}, {}, {}
 
-        # === 扫描 DataFrame 收集节点与边 ===
-        for r in use_df.itertuples(index=False):
+        for r in df.itertuples(index=False):
             action = getattr(r, "action")
             actor_id = getattr(r, "actorID")
             object_id = getattr(r, "objectID")
@@ -139,7 +190,7 @@ class DARPAHandler(BaseProcessor):
             if object_id not in nodes_type:
                 nodes_type[object_id] = getattr(r, "object")
 
-            # 累加动作到 set
+            # 累加动作
             edges_map.setdefault((actor_id, object_id), set()).add(action)
 
         # === 创建图节点 ===
@@ -172,6 +223,22 @@ class DARPAHandler(BaseProcessor):
             relations_index[(s, d)] = list(edges_map[(a, b)])
 
         return features, edge_index, node_ids, relations_index, G
+
+    def _process_subgraph(self, subgraph, is_malicious=False, cid=None):
+        if is_malicious:
+            labels = subgraph.vs["label"] if "label" in subgraph.vs.attributes() else []
+            mal_nodes = sum(lbl == 1 for lbl in labels)
+            if mal_nodes > 0:
+                print(f"社区 {cid} 是恶意社区 (恶意节点数={mal_nodes})")
+                for v in subgraph.vs:
+                    for attr, old_val in v.attributes().items():
+                        new_val = _replace_event_in_value(old_val)
+                        if new_val != old_val:
+                            print(f"malicious val ===== change {old_val} -> {new_val}")
+                            v[attr] = new_val
+
+
+
 
 def collect_nodes_from_log(paths):
     netobj2pro = {}
@@ -292,3 +359,19 @@ def extract_properties(node_id, row, action, netobj2pro, subject2pro, file2pro):
         exec_cmd = getattr(row, "exec", "")
         path_val = getattr(row, "path", "")
         return " ".join([exec_cmd, action] + ([path_val] if path_val else []))
+
+_EVENT_TOKEN = re.compile(r'(?<!\w)EVENT[^\s]*')
+
+def _replace_event_in_value(val):
+    if isinstance(val, str):
+        return _EVENT_TOKEN.sub("chentuoyu", val)
+    elif isinstance(val, list):
+        return [_replace_event_in_value(x) for x in val]
+    elif isinstance(val, tuple):
+        return tuple(_replace_event_in_value(x) for x in val)
+    elif isinstance(val, dict):
+        return {k: _replace_event_in_value(v) for k, v in val.items()}
+    elif isinstance(val, set):
+        return {_replace_event_in_value(x) for x in val}
+    else:
+        return val  # 非字符串/容器类型原样返回
