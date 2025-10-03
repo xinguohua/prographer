@@ -227,10 +227,26 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
             node_labels = {vid: props[vid] for vid in range(vcount)}
 
             # 一次性建邻接 + 局部 WL
+            t0 = time.time()
             self.wl.ingest_edges(edges, types, node_gids, node_labels=node_labels)
+            t_ingest = time.time() - t0
+            print(f"[snapshot {sidx}] ingest_edges: {t_ingest:.4f}s")
+
+            # 如果需要全局 WL，可以在这里运行（当前使用局部 WL）
+            t0_wl = time.time()
+            try:
+                self.wl.run_wl_rounds()
+            except Exception:
+                pass
+            t_wl = time.time() - t0_wl
+            print(f"[snapshot {sidx}] run_wl_rounds: {t_wl:.4f}s")
 
             # 从全局直方图得到定长 sketch
+            t0s = time.time()
             sketch = self.hs.sketch(self.wl.hist)
+            t_sketch = time.time() - t0s
+            print(f"[snapshot {sidx}] sketch: {t_sketch:.4f}s")
+
             self.sketch_snapshots.append((time.time(), sketch))
 
     def get_snapshot_embeddings(self, snapshot_sequence=None):
@@ -243,12 +259,15 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
         if snapshot_sequence is None:
             snapshot_sequence = list(range(len(self.sketch_snapshots)))
 
+        t0 = time.time()
         embeddings = []
         for idx in snapshot_sequence:
             _, sketch = self.sketch_snapshots[idx]
             embeddings.append(sketch)
-
-        return np.array(embeddings)
+        arr = np.array(embeddings)
+        t_total = time.time() - t0
+        print(f"[get_snapshot_embeddings] build array: {t_total:.4f}s, shape={arr.shape}")
+        return arr
 
     def embed_edges(self):
         pass
