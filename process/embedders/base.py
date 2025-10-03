@@ -17,3 +17,7 @@ class GraphEmbedderBase(ABC):
     @abstractmethod
     def embed_edges(self):
         pass
+
+    @abstractmethod
+    def get_snapshot_embeddings(self, snapshot_sequence=None):
+        pass

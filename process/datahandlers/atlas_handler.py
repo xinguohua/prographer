@@ -113,6 +113,7 @@ class ATLASHandler(BaseProcessor):
                 v_actor = cache_graph.vs.find(name=actor_id)
                 v_actor["frequency"] = node_frequency[actor_id]
             except ValueError:
+                actor_type_enum = ObjectType[row['actor_type']]
                 cache_graph.add_vertex(
                     name=actor_id, type= actor_type_enum.name,
                     properties=extract_properties(actor_id, self.all_netobj2pro, self.all_subject2pro,

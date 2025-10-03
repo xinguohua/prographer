@@ -103,7 +103,7 @@ class DARPAHandler(BaseProcessor):
         use_df = pd.concat(self.all_dfs, ignore_index=True)
         self.use_df = use_df.drop_duplicates()
 
-    def create_snapshots_from_graph(self, df, is_malicious=False, mode="time"):
+    def create_snapshots_from_graph(self, df, is_malicious=False, mode="community"):
         """
         通用快照生成函数
         - mode: "community" 或 "time"

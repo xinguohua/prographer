@@ -6,13 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
-
 from .base import GraphEmbedderBase
-
-
-# =========================================================================
-# =================== 修改后的 ProGrapherEmbedder 类 =======================
-# =========================================================================
 
 class ProGrapherEmbedder(GraphEmbedderBase):
     # 新增：定义一个类级别的常量来存储模型保存路径

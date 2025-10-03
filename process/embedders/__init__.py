@@ -1,6 +1,8 @@
 from .word2vec_embedder import Word2VecEmbedder
 from .transe_embedder import TransEEmbedder
 from .prographer_embedder import ProGrapherEmbedder
+from .unicorn_embedder import UnicornGraphEmbedder
+
 
 def get_embedder_by_name(name: str):
     name = name.lower()
@@ -10,5 +12,7 @@ def get_embedder_by_name(name: str):
         return TransEEmbedder
     elif name == "prographer":
         return ProGrapherEmbedder
+    elif name == "unicorn":
+        return UnicornGraphEmbedder
     else:
         raise ValueError(f"未知编码器类型: {name}")
