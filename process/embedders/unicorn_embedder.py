@@ -190,16 +190,14 @@ class HistoSketch:
 # --- UNICORN 风格嵌入器 ---
 class UnicornGraphEmbedder(GraphEmbedderBase):
     def __init__(self, snapshots, features=None, mapp=None,
-                 R=3, decay_lambda=0.0005, sketch_size=64,
-                 snapshot_edges=2000, wl_batch=500, embedding_dim=256):
+                 R=3, decay_lambda=0.0005, sketch_size=256,
+                 snapshot_edges=2000, wl_batch=500):
         super().__init__(snapshots, features, mapp)
         self.snapshots = self.G
         self.wl = WLHistogram(R=R, decay_lambda=decay_lambda)
         self.hs = HistoSketch(sketch_size=sketch_size)
         self.snapshot_edges = snapshot_edges
         self.wl_batch = wl_batch
-        self.embedding_dim = embedding_dim
-
         self.sketch_snapshots = []         # list[(ts, sketch)]
         self.snapshot_embeddings = None
         self._node_embeddings = {}
