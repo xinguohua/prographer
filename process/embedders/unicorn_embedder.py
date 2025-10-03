@@ -15,25 +15,65 @@ class WLHistogram:
         self.decay_lambda = decay_lambda
         self.hist = defaultdict(float)     # global histogram: label -> weight
         self.labels = {}                   # node -> current label (string)
-        # 去掉 lambda：使用 defaultdict(dict) + 显式 setdefault
         self.adj = defaultdict(dict)       # node -> edge_type -> set(neighbors)
         self.last_decay_ts = time.time()
+        # 哈希缓存，显著减少 mmh3 调用次数
+        self._label_hash_cache = {}        # str(label) -> int64
+        self._pair_hash_cache  = {}        # (etype, label) -> int64
+
+    # ---------- Hash helpers (with cache) ----------
+    def _hash_label(self, lab: str) -> int:
+        """缓存后的标签哈希"""
+        h = self._label_hash_cache.get(lab)
+        if h is None:
+            h = mmh3.hash64(lab)[0]
+            self._label_hash_cache[lab] = h
+        return h
+
+    def _hash_pair(self, et: str, lbl: str) -> int:
+        """缓存后的 (edge_type, label) 组合哈希"""
+        key = (et, lbl)
+        h = self._pair_hash_cache.get(key)
+        if h is None:
+            # 这里用 | 作为分隔符，避免 f-string 大量分配；cache 已经避免重复了
+            h = mmh3.hash64(et + '|' + lbl)[0]
+            self._pair_hash_cache[key] = h
+        return h
+
+    # ---------- Graph ingest ----------
+    def ingest_edge(self, u, v, edge_type, u_label=None, v_label=None):
+        """单条边增量：建邻接 + 设置初始标签 + 局部 WL"""
+        if u_label is not None:
+            self.labels.setdefault(u, u_label)
+        if v_label is not None:
+            self.labels.setdefault(v, v_label)
+
+        et_map_u = self.adj[u]
+        if edge_type not in et_map_u:
+            et_map_u[edge_type] = set()
+        et_map_u[edge_type].add(v)
+
+        rev_type = f"rev_{edge_type}"
+        et_map_v = self.adj[v]
+        if rev_type not in et_map_v:
+            et_map_v[rev_type] = set()
+        et_map_v[rev_type].add(u)
+
+        self.update_wl_local({u, v})
 
     def ingest_edges(self, edges, types, node_gids, node_labels=None):
         """
-        批量 ingest 多条边
-        edges: list/iter of (u_local, v_local)
-        types: list/iter of edge types (len 对齐 edges)
-        node_gids: dict {local_vid -> global_id}
-        node_labels: dict {local_vid -> init_label} (可选)
+        批量 ingest 多条边：
+        - 建邻接
+        - 一次性设置初始标签
+        - 只对“新边端点集合”做局部 WL（随后按 R 轮向邻居传播）
         """
-        # 批量设置初始标签
         if node_labels is not None:
             for vid_local, label in node_labels.items():
                 gid = node_gids[vid_local]
                 self.labels.setdefault(gid, label)
 
-        # 批量建邻接
+        affected = set()
         for i, (u_local, v_local) in enumerate(edges):
             et = types[i]
             u = node_gids[u_local]
@@ -50,6 +90,13 @@ class WLHistogram:
                 et_map_v[rev_type] = set()
             et_map_v[rev_type].add(u)
 
+            affected.add(u)
+            affected.add(v)
+
+        if affected:
+            self.update_wl_local(affected)
+
+    # ---------- Decay ----------
     def _decay(self):
         now = time.time()
         dt = now - self.last_decay_ts
@@ -63,49 +110,68 @@ class WLHistogram:
                 del self.hist[k]
         self.last_decay_ts = now
 
-    def run_wl_rounds(self):
-        """优化版 WL：用整数哈希替代排序+字符串拼接"""
+    # ---------- Local WL update ----------
+    def update_wl_local(self, affected_nodes):
+        """
+        只更新受影响节点，并按 R 轮向外层邻居传播（同步式）：
+        - 每一轮使用“上一轮的标签快照”计算
+        - 使用交换律哈希（XOR 聚合）避免排序 + 字符串拼接
+        - 使用缓存减少哈希调用
+        """
+        if not affected_nodes:
+            return
+
         self._decay()
-        cur = self.labels.copy()
+
+        # 同步式：每轮基于上一轮的标签快照
+        labels_round = self.labels.copy()
+        frontier = set(n for n in affected_nodes if n in self.adj)  # 没有邻接的节点可跳过
 
         for _ in range(self.R):
+            if not frontier:
+                break
+
             nxt = {}
-            for n, lab in cur.items():
+            # 仅对 frontier 节点更新
+            for n in frontier:
+                lab = labels_round.get(n, self.labels.get(n, "")) or ""
                 et_map = self.adj.get(n, {})
+                neigh_hash = 0
                 for et, nbrs in et_map.items():
-                    neigh_hash = 0
                     for x in nbrs:
-                        lbl = cur.get(x, "")
-                        # 避免字符串拼接: 直接对 (etype, label) 哈希
-                        hv = mmh3.hash64(f"{et}:{lbl}")[0]
-                        neigh_hash ^= hv  # XOR 聚合，顺序无关
+                        lbl_n = labels_round.get(x, self.labels.get(x, "")) or ""
+                        neigh_hash ^= self._hash_pair(et, lbl_n)
 
-                    # combine 自己的标签哈希 + 邻居聚合哈希
-                    self_hash = mmh3.hash64(lab)[0]
-                    sig_val = self_hash ^ neigh_hash
-                    new_lab = hex(sig_val & ((1 << 64) - 1))
+                self_hash = self._hash_label(lab)
+                sig_val = (self_hash ^ neigh_hash) & ((1 << 64) - 1)
+                new_lab = hex(sig_val)
+                nxt[n] = new_lab
+                self.hist[new_lab] += 1.0
 
-                    nxt[n] = new_lab
-                    self.hist[new_lab] += 1.0
-            cur = nxt
+            # 应用这一轮结果到快照 & 全局 labels
+            labels_round.update(nxt)
+            self.labels.update(nxt)
 
-        self.labels.update(cur)
+            # 下一轮的 frontier：本轮更新节点的所有邻居（同步传播）
+            new_frontier = set()
+            for n in nxt.keys():
+                for et, nbrs in self.adj.get(n, {}).items():
+                    new_frontier.update(nbrs)
+            frontier = new_frontier
 
 
-# --- 极简 HistoSketch 占位实现（用来把直方图压成固定长度 sketch） ---
+# --- 极简 HistoSketch 占位实现（把直方图压成固定长度 sketch） ---
 class HistoSketch:
     def __init__(self, sketch_size=64, seed=42):
         self.K = sketch_size
         random.seed(seed)
-        # 用随机参数作为占位（真实 CWS 实现应替换这里）
+        # 占位版本的 CWS 参数
         self.a = [random.random() + 1e-6 for _ in range(self.K)]
         self.b = [random.random() + 1e-6 for _ in range(self.K)]
 
     def _cws_hash(self, key, weight, k):
-        # 占位：返回 (hash_key, score) 其中 score 越小越优
-        # 真正的 Consistent Weighted Sampling 需要精确实现
-        h = mmh3.hash64(f"{key}:{k}")[0] & ((1 << 64) - 1)
-        # 将 weight -> score 做个单调转换（越大越优 => 越小score）
+        # 避免过多 f-string：拼接一次
+        h = mmh3.hash64(str(key) + '|' + str(k))[0] & ((1 << 64) - 1)
         score = -math.log(max(weight, 1e-9)) / (self.a[k])
         return (h, score)
 
@@ -118,37 +184,33 @@ class HistoSketch:
                 cand = self._cws_hash(key, w, k)
                 if cand[1] < sig[k][1]:
                     sig[k] = cand
-        # 返回固定长度整数向量（hash keys）
         return [int(x[0]) if x[0] is not None else 0 for x in sig]
 
 
-# --- 具体的子类：把 UNICORN 风格嵌入实现进来 ---
+# --- UNICORN 风格嵌入器 ---
 class UnicornGraphEmbedder(GraphEmbedderBase):
     def __init__(self, snapshots, features=None, mapp=None,
                  R=3, decay_lambda=0.0005, sketch_size=64,
-                 snapshot_edges=2000, wl_batch=500, embedding_dim=32):
+                 snapshot_edges=2000, wl_batch=500, embedding_dim=256):
         super().__init__(snapshots, features, mapp)
-        # 内部模块
         self.snapshots = self.G
         self.wl = WLHistogram(R=R, decay_lambda=decay_lambda)
         self.hs = HistoSketch(sketch_size=sketch_size)
         self.snapshot_edges = snapshot_edges
         self.wl_batch = wl_batch
-        # 目标输出维度（对 sketch 序列做降维后得到的 snapshot embeddings）
         self.embedding_dim = embedding_dim
 
-        # bookkeeping
-        self.sketch_snapshots = []     # list of (ts, sketch)
-        self.snapshot_embeddings = None  # numpy array (n_snapshots, embedding_dim)
-        # node-level cache for last computed node embeddings
+        self.sketch_snapshots = []         # list[(ts, sketch)]
+        self.snapshot_embeddings = None
         self._node_embeddings = {}
         self._edge_embeddings = {}
 
-
     def train(self):
         """
-        基于 self.snapshots（每个元素是 igraph.Graph）生成快照嵌入。
-        每个快照处理完：运行 WL -> 将全局直方图压缩成 sketch -> 存入 self.sketch_snapshots
+        基于 self.snapshots（每个元素是 igraph.Graph）生成快照嵌入：
+        - 批量 ingest 边与初始标签
+        - 仅对新增边端点集合做局部 WL（R 轮向外传播）
+        - 取全局直方图做 HistoSketch
         """
         if not hasattr(self, "snapshots") or not self.snapshots:
             raise RuntimeError("self.snapshots 为空，请先设置快照数据")
@@ -157,36 +219,25 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
             if g is None:
                 continue
 
-            # 批量取数据（一次性从 C 层拿出，避免逐元素 Python 属性访问）
+            # 批量拉取（igraph C 层，快很多）
             edges = g.get_edgelist()          # [(u,v), ...]
-            types = g.es["type"]              # 边类型数组（len == |E|）
-            props = g.vs["properties"]        # 节点属性数组（len == |V|）
+            types = g.es["type"]              # len == |E|
+            props = g.vs["properties"]        # len == |V|
 
-            # 建立本快照的 {local_vid -> global_id}
             vcount = g.vcount()
-            # 建立 {local_vid -> name}
-            node_gids = {vid: g.vs[vid]['name'] for vid in range(g.vcount())}
-            # 建立 {local_vid -> 属性} (假设属性存在；可按需判空)
+            node_gids = {vid: g.vs[vid]['name'] for vid in range(vcount)}
             node_labels = {vid: props[vid] for vid in range(vcount)}
-            print("ingest_edges")
-            # 一次性送进 WL
+
+            # 一次性建邻接 + 局部 WL
             self.wl.ingest_edges(edges, types, node_gids, node_labels=node_labels)
 
-            # WL + Sketch
-            try:
-                print("run_wl_rounds")
-                self.wl.run_wl_rounds()
-            except Exception:
-                # 为稳健起见，忽略 WL 内部可能的个别异常，不影响后续流程
-                pass
-
+            # 从全局直方图得到定长 sketch
             sketch = self.hs.sketch(self.wl.hist)
             self.sketch_snapshots.append((time.time(), sketch))
 
     def get_snapshot_embeddings(self, snapshot_sequence=None):
         """
-        从 self.sketch_snapshots 里取出快照 embedding。
-        每个快照是 (timestamp, sketch)，这里只取 sketch。
+        返回按索引序列选取的快照 sketch 堆叠成的矩阵 (n_snapshots, sketch_size)
         """
         if not self.sketch_snapshots:
             raise RuntimeError("还没有任何快照，请先调用 train() 生成。")
@@ -196,7 +247,7 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
 
         embeddings = []
         for idx in snapshot_sequence:
-            ts, sketch = self.sketch_snapshots[idx]
+            _, sketch = self.sketch_snapshots[idx]
             embeddings.append(sketch)
 
         return np.array(embeddings)
