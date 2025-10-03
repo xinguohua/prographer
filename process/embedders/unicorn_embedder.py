@@ -47,7 +47,6 @@ class WLHistogram:
         for _ in range(self.R):
             nxt = {}
             for n, lab in cur.items():
-                bag = []
                 for et, nbrs in self.adj[n].items():
                     neigh_sig = sorted((et, cur.get(x, "")) for x in nbrs)
                     # stable string repr
@@ -95,7 +94,7 @@ class HistoSketch:
 class UnicornGraphEmbedder(GraphEmbedderBase):
     def __init__(self, snapshots, features=None, mapp=None,
                  R=3, decay_lambda=0.0005, sketch_size=64,
-                 snapshot_edges=2000, wl_batch=500):
+                 snapshot_edges=2000, wl_batch=500, embedding_dim=32):
         super().__init__(snapshots, features, mapp)
         # 内部模块
         self.snapshots = self.G
@@ -103,10 +102,13 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
         self.hs = HistoSketch(sketch_size=sketch_size)
         self.snapshot_edges = snapshot_edges
         self.wl_batch = wl_batch
+        # 目标输出维度（对 sketch 序列做降维后得到的 snapshot embeddings）
+        self.embedding_dim = embedding_dim
 
         # bookkeeping
         self.edge_count = 0
         self.sketch_snapshots = []     # list of (ts, sketch)
+        self.snapshot_embeddings = None  # numpy array (n_snapshots, embedding_dim)
         # node-level cache for last computed node embeddings
         self._node_embeddings = {}
         self._edge_embeddings = {}
@@ -147,7 +149,7 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
             return g.vs[vid]['name']
         return f"s{sidx}:v{vid}"
 
-    def train(self, max_steps=None, emit_snapshots=True):
+    def train(self, max_steps=None):
         """
         基于 self.snapshots（每个元素是 igraph.Graph）生成快照嵌入。
         每个快照处理完：运行 WL -> 将全局直方图压缩成 sketch -> 存入 self.sketch_snapshots
@@ -155,52 +157,41 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
         if not hasattr(self, "snapshots") or not self.snapshots:
             raise RuntimeError("self.snapshots 为空，请先设置快照数据")
 
-        steps = 0
         for sidx, g in enumerate(self.snapshots):
-            if max_steps is not None and steps >= max_steps:
-                break
             if g is None:
                 continue
 
-            # 获取图的属性字段
-            v_attrs = g.vs.attributes()  # 顶点属性名
-            e_attrs = g.es.attributes()  # 边属性名
-            has_init = 'init_label' in v_attrs
-
-            # 遍历边
+            # 遍历当前图的所有边
             for e in g.es:
-                if max_steps is not None and steps >= max_steps:
-                    break
-
-                u_local, v_local = e.tuple  # 本地索引 (整数)
-
-                # 转换成本次快照的全局唯一节点ID
+                u_local, v_local = e.tuple
                 u = self._node_gid(g, u_local, sidx)
                 v = self._node_gid(g, v_local, sidx)
 
-                # 取边类型
-                if 'etype' in e_attrs:
-                    et = e['etype']
-                elif 'type' in e_attrs:
-                    et = e['type']
-                else:
-                    et = 'unk'
+                et = e['type']
+                u_init = g.vs[u_local]['properties']
+                v_init = g.vs[v_local]['properties']
 
-                # 初始标签（如果有的话）
-                u_init = g.vs[u_local]['init_label'] if has_init else None
-                v_init = g.vs[v_local]['init_label'] if has_init else None
-
-                # 灌入 WL 模块
+                # ingest edge 到 WL 模块
                 self.wl.ingest_edge(u, v, et, u_init_label=u_init, v_init_label=v_init)
 
                 self.edge_count += 1
-                steps += 1
 
-            # —— 当前 snapshot 结束后，做 WL + sketch ——
-            self.wl.run_wl_rounds()
-            if emit_snapshots:
-                sketch = self.hs.sketch(self.wl.hist)
-                self.sketch_snapshots.append((time.time(), sketch))
+            # 当前 snapshot 处理完后 -> 做一次 WL + 生成 sketch
+            try:
+                self.wl.run_wl_rounds()
+            except Exception:
+                pass
+            sketch = self.hs.sketch(self.wl.hist)
+            self.sketch_snapshots.append((time.time(), sketch))
+
+        # 训练结束后，尝试降维为 snapshot embeddings
+        if self.sketch_snapshots:
+            try:
+                self.snapshot_embeddings = self._compute_snapshot_embeddings(
+                    n_components=self.embedding_dim
+                )
+            except Exception:
+                self.snapshot_embeddings = None
 
 
     def get_snapshot_embeddings(self, snapshot_sequence=None):
@@ -221,10 +212,72 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
 
         return np.array(embeddings)
 
+    def _compute_snapshot_embeddings(self, n_components=32):
+        """
+        使用简单的线性降维（SVD/PCA）将 sketch 序列转换为低维连续 embedding。
+        这里的 sketch 是整数哈希列表（长度 K）。为了把它们转换为数值矩阵，
+        我们对每个 sketch 做简单的 one-hot-ish hashing -> 稀疏计数向量转换，
+        然后对矩阵进行 SVD 并取左奇异向量乘奇异值得到低维表示。
+        这是一个轻量级、可替换的降维策略，便于后续替换为论文中准确的训练流程。
+        """
+        if not self.sketch_snapshots:
+            return np.zeros((0, n_components))
+
+        sketches = [s for _, s in self.sketch_snapshots]
+        K = len(sketches[0])
+
+        # 建立 hash -> column id 映射（根据已出现的 hash 值）
+        uniq = {}
+        cols = 0
+        rows = len(sketches)
+        # 估计稀疏矩阵大小，先收集所有唯一 hash
+        for sk in sketches:
+            for h in sk:
+                if h not in uniq:
+                    uniq[h] = cols
+                    cols += 1
+
+        # 若唯一哈希过多，限制列数以免内存暴涨：使用模运算压缩
+        max_cols = max(cols, 1)
+        if cols > 10000:
+            # 压缩列数到 K * 64（经验值），通过对 hash 值取模
+            max_cols = K * 64
+
+        mat = np.zeros((rows, max_cols), dtype=float)
+        for i, sk in enumerate(sketches):
+            for h in sk:
+                if cols <= 10000:
+                    j = uniq[h]
+                else:
+                    j = int(h) % max_cols
+                mat[i, j] += 1.0
+
+        # 中心化
+        mat -= mat.mean(axis=0, keepdims=True)
+
+        # SVD 降维（如果维度过大用 economy SVD）
+        try:
+            U, S, Vt = np.linalg.svd(mat, full_matrices=False)
+            # 使用 U * S[:, :n_components]
+            comps = min(n_components, U.shape[1])
+            embeddings = U[:, :comps] * S[:comps]
+            # 若需要更多列，用零填充
+            if comps < n_components:
+                padded = np.zeros((rows, n_components), dtype=float)
+                padded[:, :comps] = embeddings
+                embeddings = padded
+            return embeddings
+        except Exception:
+            # 退化方案：返回行和/或 sketch 的简单统计特征
+            stats = np.vstack([np.mean(mat, axis=1), np.std(mat, axis=1)]).T
+            if stats.shape[1] >= n_components:
+                return stats[:, :n_components]
+            padded = np.zeros((rows, n_components), dtype=float)
+            padded[:, :stats.shape[1]] = stats
+            return padded
+
     def embed_edges(self):
         pass
 
     def embed_nodes(self):
         pass
-
-
