@@ -26,7 +26,7 @@ class WLHistogram:
             self.labels.setdefault(v, v_init_label)
         self.adj[u][edge_type].add(v)
         self.adj[v][f"rev_{edge_type}"].add(u)
-        df
+        
     def _decay(self):
         now = time.time()
         dt = now - self.last_decay_ts
