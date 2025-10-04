@@ -258,10 +258,30 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
         for idx in snapshot_sequence:
             _, sketch = self.sketch_snapshots[idx]
             embeddings.append(sketch)
+        # 原始 sketch 由 64-bit 整数构成，直接用这些巨大整数训练会导致数值不稳定（Inf）
         arr = np.array(embeddings)
+
+        # 把 uint64 hash 映射到 [0, 1) 的浮点数，然后按列做标准化 (mean=0, std=1)
+        try:
+            # 确保是无符号 64 位范围
+            arr_u = arr.astype(np.uint64)
+            floats = arr_u.astype(np.float64) / float(1 << 64)
+        except Exception:
+            # 退回安全的转换路径
+            floats = arr.astype(np.float64)
+
+        # 列标准化，避免某些列的常数或非常小的方差导致除零
+        col_mean = floats.mean(axis=0)
+        col_std = floats.std(axis=0)
+        col_std[col_std == 0.0] = 1.0
+        normed = (floats - col_mean) / col_std
+
         t_total = time.time() - t0
-        print(f"[get_snapshot_embeddings] build array: {t_total:.4f}s, shape={arr.shape}")
-        return arr
+        print(f"[get_snapshot_embeddings] build array: {t_total:.4f}s, raw_shape={arr.shape}, normed_shape={normed.shape}")
+        # 打印一些统计信息帮助调试
+        print(f"[get_snapshot_embeddings] col mean (first3)={col_mean[:3]}, col std (first3)={col_std[:3]}")
+
+        return normed.astype(np.float32)
 
     def embed_edges(self):
         pass
