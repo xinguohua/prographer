@@ -94,7 +94,7 @@ class PrographerClassify(BaseClassify):
         if T < L:
             pad_len = L - T
             padded = torch.cat([x, torch.full((pad_len, D), pad_value, device=x.device)], dim=0)
-            return padded.unsqueeze(0), x[-1:].unsqueeze(0)
+            return padded.unsqueeze(0), x[-1].unsqueeze(0)
 
         seqs, tars = [], []
         for i in range(T - L + 1):
@@ -137,6 +137,8 @@ class PrographerClassify(BaseClassify):
                 with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
                     pred = self.model(xb)
                     loss = criterion(pred, yb)
+                    # print(f"DEBUG SHAPES (train) xb={tuple(xb.shape)} pred={tuple(pred.shape)} yb={tuple(yb.shape)}")
+
                 scaler.scale(loss).backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.grad_clip_norm)
                 scaler.step(optimizer)
@@ -152,6 +154,8 @@ class PrographerClassify(BaseClassify):
                     xb, yb = xb.to(self.device), yb.to(self.device)
                     pred = self.model(xb)
                     vtotal += criterion(pred, yb).item() * xb.size(0)
+                    # print(f"DEBUG SHAPES (val) xb={tuple(xb.shape)} pred={tuple(pred.shape)} yb={tuple(yb.shape)}")
+
             val_loss = vtotal / len(val_x)
             scheduler.step(val_loss)
 

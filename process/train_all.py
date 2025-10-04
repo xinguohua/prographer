@@ -40,6 +40,7 @@ def build_embeddings(snapshots):
     snapshot_embeddings = embedder.get_snapshot_embeddings()
     print("\n--- Encoder 过程完成 ---")
     print(f"[嵌入] 快照嵌入序列: {snapshot_embeddings.shape}")
+    print(snapshot_embeddings)
     return snapshot_embeddings
 
 
