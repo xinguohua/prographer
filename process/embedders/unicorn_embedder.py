@@ -165,29 +165,33 @@ class WLHistogram:
 
 # --- 极简 HistoSketch 占位实现（把直方图压成固定长度 sketch） ---
 class HistoSketch:
-    def __init__(self, sketch_size=64, seed=42):
+    """高效实现的 HistoSketch：将加权直方图映射为固定长度 sketch 向量。"""
+
+    def __init__(self, sketch_size: int = 64, seed: int = 42):
+        if sketch_size <= 0:
+            raise ValueError("sketch_size 必须为正整数")
+
         self.K = sketch_size
         random.seed(seed)
-        # 占位版本的 CWS 参数
-        self.a = [random.random() + 1e-6 for _ in range(self.K)]
-        self.b = [random.random() + 1e-6 for _ in range(self.K)]
+        # Consistent Weighted Sampling 参数
+        self.a = [random.random() + 1e-9 for _ in range(self.K)]
 
-    def _cws_hash(self, key, weight, k):
-        # 避免过多 f-string：拼接一次
-        h = mmh3.hash64(str(key) + '|' + str(k))[0] & ((1 << 64) - 1)
-        score = -math.log(max(weight, 1e-9)) / (self.a[k])
-        return (h, score)
+    def _cws_hash(self, key: str, weight: float, k: int) -> tuple[int, float]:
+        """为单个键值对计算第 k 个候选哈希与得分。"""
+        h = mmh3.hash64(key, seed=k, signed=False)
+        h = h[0] if isinstance(h, tuple) else h
+        score = -math.log(max(weight, 1e-9)) / self.a[k]
+        return h, score
 
-    def sketch(self, histogram):
-        sig = [(None, float('inf'))] * self.K
-        for key, w in histogram.items():
-            if w <= 0:
-                continue
-            for k in range(self.K):
-                cand = self._cws_hash(key, w, k)
-                if cand[1] < sig[k][1]:
-                    sig[k] = cand
-        return [int(x[0]) if x[0] is not None else 0 for x in sig]
+    def sketch(self, histogram: dict) -> list[int]:
+        """将直方图 {key: weight} 压缩为固定长度 sketch 向量。"""
+        sig = [(0, float('inf')) for _ in range(self.K)]
+        for k_str, w in ((str(k), v) for k, v in histogram.items() if v > 0):
+            for i in range(self.K):
+                h, s = self._cws_hash(k_str, w, i)
+                if s < sig[i][1]:
+                    sig[i] = (h, s)
+        return [int(h) for h, _ in sig]
 
 
 # --- UNICORN 风格嵌入器 ---
@@ -220,7 +224,6 @@ class UnicornGraphEmbedder(GraphEmbedderBase):
             if g is None:
                 continue
 
-            # 批量拉取（igraph C 层，快很多）
             edges = g.get_edgelist()          # [(u,v), ...]
             types = g.es["type"]              # len == |E|
             props = g.vs["properties"]        # len == |V|
