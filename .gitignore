@@ -32,6 +32,3 @@ multi_strategy_log*.txt
 snapshot_rsg_map.txt
 rsg_vocab.txt
 
-# Paper PDF stays local (not redistributed in code repo)
-Interpretable_Stealthy_*.pdf
-bare_jrnl*.pdf
