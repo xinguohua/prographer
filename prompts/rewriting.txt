@@ -1,0 +1,36 @@
+[Context]
+For this attack process node, neither the command name nor the arguments is
+attack-specific in isolation. The full command may therefore be rewritten
+into a different expression that fits the surrounding benign context C; the
+attack causal chain remains intact via the structural mutation that placed
+this node.
+
+[Input]
+Process node:
+    command_name = {name}
+    arguments    = {args}
+Context C (neighboring events as typed triples):
+    [(src_type:attr, op, dst_type:attr), ...]
+
+[Task]
+Rewrite the full command (new command name and new arguments) into a
+different expression that matches the dominant process type observed in C
+(e.g., if C is dominated by `nginx` processes, prefer a command consistent
+with a web-server workflow).
+
+[Constraints]
+(1) the rewritten command must be a legitimate executable + arguments combination;
+(2) it must be plausible within the dominant process type in C;
+(3) the rewritten command must be a distinct expression (not a trivial paraphrase)
+    so it carries no residual signal from the original.
+
+[Output]
+JSON: {"new_command_name": "...", "new_arguments": "..."}.
+
+[Example]
+Input: command_name="python", arguments="/tmp/script.py", C dominated by
+`nginx` processes.
+Output:
+{"new_command_name": "php",
+ "new_arguments": "/var/www/cgi-bin/handler.php"}
+— matches the surrounding nginx context.

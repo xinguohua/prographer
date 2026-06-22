@@ -1,0 +1,79 @@
+# ATHENA configuration.
+#
+# Paths section: replace each <DATASET_ROOT> placeholder with the absolute
+# path to your unpacked dataset directory before running any script. The keys
+# here match the dataset names accepted by `--dataset` (cadets, theia, trace,
+# clearscope, cadets5, theia5, atlas, optcday1).
+
+paths:
+  theia:      <DARPA_E3_THEIA_ROOT>
+  cadets:     <DARPA_E3_CADETS_ROOT>
+  clearscope: <DARPA_E3_CLEARSCOPE_ROOT>
+  trace:      <DARPA_E3_TRACE_ROOT>
+  cadets5:    <DARPA_E5_CADETS_ROOT>
+  theia5:     <DARPA_E5_THEIA_ROOT>
+  atlas:      <ATLAS_ROOT>
+  optcday1:   <OPTC_DAY1_ROOT>
+
+# Snapshot construction (Paper §IV.A).
+snapshot:
+  malicious_window_minutes: 10   # T_mal — labelled window around each malicious event
+  test_window_minutes:      20   # T_test — eval split window
+  snapshot_size:            500  # SNAPSHOT_SIZE — nodes per 1-min snapshot
+  forgetting_rate:          0.2  # rate at which old nodes are evicted
+
+# Snapshot sequence assembly (Paper §IV.A → §IV.D input).
+sequence:
+  length:                12   # L — sequence length seen by the GRU temporal encoder
+  min_length:            3    # MIN_SEQUENCE_LENGTH — minimum when fewer snapshots are available
+  adapt_ratio:           0.5  # fallback ratio = snapshot_count * adapt_ratio
+
+# Typed-GIN node encoder (Paper §IV.D).
+gin:
+  num_layers:   3
+  hidden_dim:   128   # D — embedding dimension (Supp D)
+  out_dim:      128
+  dropout:      0.1
+  r_hop:        2     # r — neighbourhood radius for ego subgraphs
+
+# LLM-guided augmentation (Paper §IV.B / §IV.C; Supp A–C).
+augmentation:
+  top_k:           5    # WL retrieval — number of attack candidates per benign anchor
+  top_m:           3    # per-anchor number of mutated variants kept
+  delta_h_lower:   0.30 # WL similarity lower bound (Paper §IV.C, check 4)
+  delta_h_upper:   0.95 # WL similarity upper bound
+  max_region_size: 32   # cap on aligned region size
+
+# Contrastive learning (Paper §IV.D).
+contrastive:
+  temperature:     0.10
+  hard_weight:     2.0  # weight multiplier for hard-mined negatives
+
+# Detection head (Paper §IV.D).
+detection:
+  threshold:       0.01 # DETECTION_THRESHOLD — anomaly score cutoff
+  mlp_hidden:      256
+  epochs:          50
+
+# Global attack interpretation (Paper §IV.E; Supp G.2 v).
+interpretation:
+  sentence_bert_model: all-MiniLM-L12-v2
+  topk_candidates:     10
+  gamma:               0.40  # confidence threshold below which a mapping is Unmapped
+  lcs_min_ratio:       0.60  # LCS_len / len(library_seq) cutoff for a hit
+
+# LLM configuration (Supp E). Per-model settings live in this map; runtime
+# selects a row by `name` and reads the rest. The API key itself is read from
+# the gitignored `local_settings.py`.
+llm:
+  default: gpt-4o
+  models:
+    gpt-4o:
+      temperature: 0.2
+      max_tokens:  512
+    qwen2.5-14b:
+      temperature: 0.2
+      max_tokens:  512
+    deepseek-v3:
+      temperature: 0.2
+      max_tokens:  512

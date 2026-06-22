@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Local secrets (never commit)
+local_settings.py
+src/local_settings.py
+
+# Trained models and intermediate caches
+*.pth
+*.pkl
+*.log
+
+# Editor / IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Project-specific runtime artifacts
+results/checkpoints/
+data/chroma_db/

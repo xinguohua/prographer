@@ -1,0 +1,36 @@
+[Context]
+An intermediate graph has been obtained by replacing a benign subgraph S in
+anchor G+ with the aligned attack subgraph S'. Mutation is restricted to the
+boundary edges between S' and the surrounding context C; internal edges of S'
+and of C are not editable.
+
+[Input]
+Candidate boundary edges between S' and C, each described as a typed triple
+containing the source node type and attributes, the operation type, and the
+target node type and attributes:
+    Existing edges to consider removing:
+        {{REMOVE_TRIPLES}}
+    Candidate new edges to consider adding:
+        {{ADD_TRIPLES}}
+
+[Task]
+For each candidate edge, decide exactly one action:
+(1) ADD    — add the proposed new edge, when it makes the cross-boundary
+             connection plausible in the benign workflow of C;
+(2) REMOVE — remove the existing edge, when it would otherwise expose the
+             attack or violate type/operation feasibility (e.g., a file-to-file
+             write that would require an additional process-mediated injection
+             path);
+(3) KEEP   — leave the edge unchanged.
+
+[Output]
+JSON array: [{"edge_id": <int>, "action": "ADD" | "REMOVE" | "KEEP",
+              "reason": "<short explanation>"}].
+Edge ids are assigned in input order: 0..N-1 for the existing-edges list,
+followed by N..N+M-1 for the candidate-new-edges list.
+
+[Example]
+Substitution inherits a `write` edge from the file node `/usr/bin/sshd` in S'
+to `syslog` in C. Action: REMOVE. Reason: a direct file-to-file write would
+require an additional process-mediated injection path (e.g., reflective
+loading) to be feasible.

