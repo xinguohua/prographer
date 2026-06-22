@@ -1,0 +1,144 @@
+{
+  "scene": "theia311",
+  "description": "DARPA E3 theia311 ATT&CK ground truth at the parent-technique level, manually annotated by three doctoral researchers in system security based on node-behaviour analysis of the official DARPA attack report. See paper §V.A and supp G.1.",
+  "entities": {
+    "B33501B6-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "firefox process exploited to launch the malicious native messaging host (gtcache)",
+      "technique": "T1189",
+      "tactic": "Initial Access"
+    },
+    "0100D00F-B700-2800-0000-00002BDE0334": {
+      "type": "FILE_OBJECT_BLOCK",
+      "behavior": "/etc/firefox/native-messaging-hosts/gtcache — dropped backdoor file",
+      "technique": "T1105",
+      "tactic": "Command and Control"
+    },
+    "B53501B6-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "/bin/sh -c ./gtcache &>/dev/null & — shell executing the backdoor",
+      "technique": "T1059",
+      "tactic": "Execution"
+    },
+    "5336F2B8-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache backdoor main process: drops /tmp/memtrace.so and contacts C2 at 146.153.68.151:80",
+      "technique": "T1105",
+      "tactic": "Command and Control"
+    },
+    "0100D00F-A60F-2400-0000-0000A43DD030": {
+      "type": "FILE_OBJECT_BLOCK",
+      "behavior": "/tmp/memtrace.so — dropped shared-library payload",
+      "technique": "T1055",
+      "tactic": "Defense Evasion"
+    },
+    "223838BC-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "/home/admin/profile masqueraded process that writes /var/log/mail",
+      "technique": "T1036",
+      "tactic": "Defense Evasion"
+    },
+    "ED35A9B7-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "/home/admin/profile masqueraded process that writes /var/log/wdev",
+      "technique": "T1036",
+      "tactic": "Defense Evasion"
+    },
+    "0100D00F-A84B-1E00-0000-00008C1CB31C": {
+      "type": "FILE_OBJECT_BLOCK",
+      "behavior": "/var/log/mail — executable masqueraded as a log file",
+      "technique": "T1036",
+      "tactic": "Defense Evasion"
+    },
+    "0100D00F-A84B-1E00-0000-000049134A16": {
+      "type": "FILE_OBJECT_BLOCK",
+      "behavior": "/var/log/wdev — malicious file masqueraded as a log file",
+      "technique": "T1036",
+      "tactic": "Defense Evasion"
+    },
+    "80370C6E-D2AA-9534-C617-500000000040": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.110 → 149.52.198.23:80 — C2 connection from the /var/log/mail process",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "283847BC-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "/var/log/mail masqueraded backdoor process that opens 6862 connections and contacts the C2",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "80370C6E-39C2-9299-4497-500000000040": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.110 → 146.153.68.151:80 — gtcache C2 connection",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "80370C6E-2D96-8D2B-B0CB-500000000040": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.110 → 141.43.176.203:80 — firefox spear-phishing / initial-access connection",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "CA35BBB6-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: scans /proc and opens SSH to 127.0.0.1:22",
+      "technique": "T1057",
+      "tactic": "Discovery"
+    },
+    "F335D6B7-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: C2 communication plus access to /var/log/wdev",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "033690B8-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: pure C2 traffic (SENDTO → 146.153.68.151:80)",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "0836A1B8-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "/home/admin/profile: deletes /var/log/wdev (forensic cleanup)",
+      "technique": "T1070",
+      "tactic": "Defense Evasion"
+    },
+    "56361CB9-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: C2 communication plus access to /tmp/memtrace.so",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "7837F1B9-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: scans /proc/13776/task, C2 communication, reads memtrace.so",
+      "technique": "T1057",
+      "tactic": "Discovery"
+    },
+    "903745BA-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: scans /proc/14204/task, C2 communication, accesses memtrace.so",
+      "technique": "T1057",
+      "tactic": "Discovery"
+    },
+    "C437B3BA-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: scans /proc, SSH to 127.0.0.1:22, accesses memtrace.so",
+      "technique": "T1021",
+      "tactic": "Lateral Movement"
+    },
+    "CB37BFBA-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "./gtcache process: C2 communication plus deletion of /tmp/memtrace.so (forensic cleanup)",
+      "technique": "T1070",
+      "tactic": "Defense Evasion"
+    },
+    "55387DBE-0200-0000-0000-000000000020": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "/home/admin/profile: deletes /var/log/mail (forensic cleanup)",
+      "technique": "T1070",
+      "tactic": "Defense Evasion"
+    }
+  }
+}

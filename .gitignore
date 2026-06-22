@@ -22,3 +22,16 @@ src/local_settings.py
 # Project-specific runtime artifacts
 results/checkpoints/
 data/chroma_db/
+
+# Training / runtime logs and intermediate listings
+all_snapshots*.txt
+test_snapshot*.txt
+malicious_tokens_log.txt
+semantic_mutation_log*.txt
+multi_strategy_log*.txt
+snapshot_rsg_map.txt
+rsg_vocab.txt
+
+# Paper PDF stays local (not redistributed in code repo)
+Interpretable_Stealthy_*.pdf
+bare_jrnl*.pdf

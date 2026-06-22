@@ -1,107 +1,38 @@
 # ATHENA
 
-ATHENA is a provenance-based intrusion detection system for stealthy Advanced Persistent Threats (APTs). It builds time-windowed snapshots from system audit logs, learns discriminative graph representations through LLM-guided adaptive contrastive learning, and reconstructs interpretable multi-stage attack chains by aligning anomalous behaviours against MITRE ATT&CK techniques.
-
-## Repository Scope
-
-This repository contains the ATHENA implementation and released annotation resources. It does **not** include baseline implementations, paper plotting artifacts, full experiment logs, or raw audit logs restricted by dataset licenses.
+ATHENA is a provenance-based intrusion detection system for stealthy Advanced Persistent Threats (APTs). It builds time-windowed provenance snapshots from system audit logs, learns discriminative node representations through LLM-guided adaptive contrastive learning, performs **per-node binary benign/malicious detection**, and reconstructs interpretable multi-stage attack chains by mapping each malicious node to an ATT&CK technique and **aligning the resulting tactic sequence** against multi-stage attack patterns.
 
 The online supplementary material lives at <https://xinguohua.github.io/athena-supp/>.
 
 ## Method Overview
 
-ATHENA has four stages (paper §IV.A–E):
+ATHENA has four stages:
 
-1. **Snapshot construction (§IV.A).** Audit events are partitioned into 1-minute non-overlapping windows; each window is materialized as a typed provenance graph and decomposed into node-centred *r*-hop subgraphs. → `src/snapshot_construction/`.
-2. **LLM-guided graph augmentation (§IV.B – §IV.C).** For each benign anchor, structurally similar attack subgraphs are retrieved via the Weisfeiler–Leman subtree kernel, an LLM-guided edge mutation decides which boundary edges between the substituted attack region and the surrounding context to ADD / REMOVE / KEEP, and three semantic-mutation strategies rewrite the attack process node's command name + arguments to blend into the benign context. A unified verification step filters mutations that violate operation legality, attribute feasibility, imperceptibility, or hardness. → `src/augmentation/`.
-3. **Adaptive contrastive learning (§IV.D).** A 3-layer typed GIN with per-layer GRU temporal state is trained with a hard-sample-weighted supervised contrastive loss; a 2-layer MLP head produces per-snapshot binary anomaly labels. → `src/detection/`.
-4. **Global attack interpretation (§IV.E).** Key causal paths are extracted from malicious snapshots, both sides are semantically enhanced, paths are mapped to ATT&CK techniques via Sentence-BERT similarity over the technique knowledge base, and the resulting technique sequence is aligned against multi-stage attack patterns using LCS. → `src/interpretation/`.
+1. **Snapshot construction.** Audit events are partitioned into 1-minute non-overlapping windows; each window is materialized as a typed provenance graph and decomposed into node-centred *r*-hop subgraphs. → `src/snapshot_construction/`.
+2. **LLM-guided graph augmentation.** For each benign anchor, structurally similar attack subgraphs are retrieved via the Weisfeiler–Leman subtree kernel, an LLM-guided edge mutation decides which boundary edges between the substituted attack region and the surrounding context to ADD / REMOVE / KEEP, and three semantic-mutation strategies rewrite the attack process node's command name + arguments to blend into the benign context. A unified verification step filters mutations that violate operation legality, attribute feasibility, imperceptibility, or hardness. → `src/augmentation/`.
+3. **Adaptive contrastive learning and node-level detection.** A 3-layer typed GIN with per-layer GRU temporal state is trained with a hard-sample-weighted supervised contrastive loss. A 2-layer MLP head consumes the per-node embedding produced by the encoder and emits a benign/malicious label for each node. → `src/detection/`.
+4. **Technique mapping and tactic-level alignment.** Each node flagged as malicious is mapped to a parent-level MITRE ATT&CK technique via Sentence-BERT similarity over the technique knowledge base; the techniques inside the same snapshot are aggregated and reduced to the corresponding tactic sequence, which is then aligned against the multi-stage tactic-sequence library using LCS. → `src/interpretation/`.
 
 ## Repository Layout
 
 ```
 .
-├── README.md
-├── LICENSE
-├── requirements.txt
-├── configs/
-│   └── athena.yaml                       # paths + hyperparameters
-├── prompts/                              # supp G.2 (ii) — prompt registry
-│   ├── edge_mutation.txt                 # supp B
-│   ├── replacement.txt                   # supp C.1
-│   ├── rewriting.txt                     # supp C.2
-│   └── extension.txt                     # supp C.3
+├── configs/athena.yaml         # paths + hyperparameters
+├── prompts/                    # LLM prompt templates for augmentation
 ├── data/
-│   ├── annotated_labels/                 # supp G.1 — released labels
-│   │   ├── darpa_e3/{malicious_entities,attack_techniques}/
-│   │   ├── darpa_e5/{malicious_entities,attack_techniques}/
-│   │   ├── optc/{malicious_entities,attack_techniques}/
-│   │   └── atlas/
-│   │       ├── malicious_entities/M1-CVE-2015-5122_windows_h{1,2}.csv
-│   │       └── attack_techniques/groundtruth.txt
-│   └── attack_knowledge/                 # supp G.2 (v) — ATT&CK KB
-│       ├── mitre_attack/
-│       │   ├── technique_triples_raw.json
-│       │   └── technique_triples_transformed.json
-│       └── attackseqbench/
-│           └── technique_sequences.txt
-├── src/                                  # supp G.2 — source code
-│   ├── snapshot_construction/
-│   │   ├── graph_loader.py               # dataset-key dispatch (handler_map + get_handler)
-│   │   ├── snapshot_builder.py           # 1-min window partitioning + r-hop ego subgraphs
-│   │   ├── darpa_e3_parser.py            # paper Table II: DARPA E3
-│   │   ├── darpa_e5_parser.py            # paper Table II: DARPA E5
-│   │   ├── optc_parser.py                # paper Table II: OpTC
-│   │   └── atlas_parser.py               # paper Table II: ATLAS
-│   ├── augmentation/
-│   │   ├── subgraph_retrieval.py         # WL subtree kernel Top-K (supp A step 1)
-│   │   ├── structural_mutation.py        # Algorithm 1 — aligned region + replacement
-│   │   ├── edge_mutation.py              # supp B — LLM-guided ADD/REMOVE/KEEP
-│   │   ├── semantic_mutation.py          # supp C.1–C.3 — three strategies
-│   │   └── verifier.py                   # four unified-verification checks
-│   ├── detection/
-│   │   ├── gin_encoder.py                # 3-layer typed GIN
-│   │   ├── temporal_encoder.py           # per-layer GRU
-│   │   ├── contrastive_learning.py       # hard-weighted SupCon + train loop
-│   │   └── classifier.py                 # 2-layer MLP head
-│   ├── interpretation/
-│   │   ├── attack_subgraph.py            # key causal path extraction
-│   │   ├── semantic_matching.py          # Sentence-BERT + Chroma top-K
-│   │   ├── attack_sequence.py            # log enhancement (action triples → NL)
-│   │   └── global_alignment.py           # LCS alignment vs sequence library
-│   └── utils/
-│       ├── config.py                     # YAML loader for configs/athena.yaml
-│       ├── io.py                         # timing/throughput helpers
-│       └── llm.py                        # OpenAI-compatible LLM client
+│   ├── annotated_labels/       # released malicious-node + ATT&CK labels (E3, E5, OpTC, ATLAS)
+│   └── attack_knowledge/       # ATT&CK technique KB + tactic-sequence library
+├── src/
+│   ├── snapshot_construction/  # 1-min provenance snapshots + r-hop ego subgraphs
+│   ├── augmentation/           # WL retrieval + structural / semantic / edge mutation + verifier
+│   ├── detection/              # typed GIN + GRU encoder, contrastive loss, node MLP head
+│   ├── interpretation/         # node → technique mapping → tactic sequence → LCS alignment
+│   └── utils/                  # config loader, timing helpers, LLM client
 └── scripts/
     ├── run_augmentation.py
-    ├── run_detection.py
-    └── run_interpretation.py
+    ├── run_detection.py        # per-node binary detection
+    └── run_interpretation.py   # tactic-sequence alignment
 ```
-
-## Paper-to-Code Mapping
-
-| Paper section | Component | Path |
-|---|---|---|
-| §IV.A | 1-min snapshot partitioning, *r*-hop ego subgraphs | `src/snapshot_construction/snapshot_builder.py` |
-| §IV.A | DARPA E3 / E5 / OpTC / ATLAS parsers | `src/snapshot_construction/{darpa_e3,darpa_e5,optc,atlas}_parser.py` |
-| §IV.B | WL subtree-kernel Top-K retrieval | `src/augmentation/subgraph_retrieval.py` |
-| §IV.B | BFS alignment + subgraph replacement (Algorithm 1) | `src/augmentation/structural_mutation.py` |
-| §IV.B | LLM-guided boundary edge mutation | `src/augmentation/edge_mutation.py` |
-| §IV.C | Three semantic-mutation strategies | `src/augmentation/semantic_mutation.py` |
-| §IV.C | Four unified-verification checks | `src/augmentation/verifier.py` |
-| §IV.D | 3-layer typed GIN | `src/detection/gin_encoder.py` |
-| §IV.D | Per-layer GRU temporal encoder | `src/detection/temporal_encoder.py` |
-| §IV.D | Hard-sample-weighted SupCon + training loop | `src/detection/contrastive_learning.py` |
-| §IV.D | 2-layer MLP detection head | `src/detection/classifier.py` |
-| §IV.E | Key causal-path extraction | `src/interpretation/attack_subgraph.py` |
-| §IV.E | Action-triple → NL log enhancement | `src/interpretation/attack_sequence.py` |
-| §IV.E | Sentence-BERT + Chroma technique mapping | `src/interpretation/semantic_matching.py` |
-| §IV.E | LCS alignment vs sequence library | `src/interpretation/global_alignment.py` |
-| §V.A | Released malicious-entity + technique labels | `data/annotated_labels/` |
-| §V.A | ATT&CK knowledge base | `data/attack_knowledge/mitre_attack/` |
-| Supp D | Hyperparameters T, r, L, D | `configs/athena.yaml` |
-| Supp E | LLM configuration | `configs/athena.yaml::llm` |
 
 ## Installation
 
@@ -130,12 +61,10 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 
 ## Released Labels (supp G.1)
 
-`data/annotated_labels/` contains manually verified malicious-entity labels and ATT&CK technique labels for each malicious snapshot across DARPA E3, DARPA E5, OpTC, and ATLAS. ATLAS labels are released directly in this artifact:
+`data/annotated_labels/` contains manually verified malicious-entity labels and ATT&CK technique labels for DARPA E3, DARPA E5, OpTC, and ATLAS, annotated by three doctoral researchers in system security based on the official attack reports. See paper §V.A.
 
-- `data/annotated_labels/atlas/malicious_entities/M1-CVE-2015-5122_windows_h{1,2}.csv` — schema: `actorID, actor_type, objectID, object, action, timestamp`.
-- `data/annotated_labels/atlas/attack_techniques/groundtruth.txt` — tab-separated ground-truth events.
-
-The `darpa_e3`, `darpa_e5`, and `optc` directories contain placeholder structure; consult the supp page for the current release status of those labels.
+- `<dataset>/malicious_entities/` — one CDM-record UUID per line per scene, consumed by `collect_label_paths` in `src/snapshot_construction/_common.py`.
+- `<dataset>/attack_techniques/` — per-scene UUID → parent-level MITRE ATT&CK technique + tactic mapping.
 
 ## ATT&CK Knowledge Base (supp G.2 v)
 

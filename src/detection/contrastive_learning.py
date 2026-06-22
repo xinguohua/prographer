@@ -1019,7 +1019,7 @@ class GCCEmbedderDev(GraphEmbedderBase):
                     f_log.write(f"  Snapshot {sid:02d}: maliciouscenter={m}\n")
                 f_log.write("=" * 80 + "\n")
             finally:
-                f_log.disable()
+                f_log.close()
 
     def _build_neg_augmented(self, Bc: int, device: torch.device,
                              benign_x_list=None, benign_e_list=None,

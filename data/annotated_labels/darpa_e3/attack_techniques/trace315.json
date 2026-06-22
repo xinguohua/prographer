@@ -1,0 +1,84 @@
+{
+  "scene": "trace315",
+  "description": "DARPA E3 trace315 ATT&CK ground truth at the parent-technique level, manually annotated by three doctoral researchers in system security based on node-behaviour analysis of the official DARPA attack report. See paper §V.A and supp G.1.",
+  "entities": {
+    "1F52B45B-9618-A060-215D-7BD61ECCAE05": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "Primary malicious process: loads libraries, communicates over the network, spawns many child processes",
+      "technique": "T1059",
+      "tactic": "Execution"
+    },
+    "A494D8CF-50ED-5620-1FBE-07A0EE363991": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.118 → 146.153.68.151:80 — C2 connection",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "59169A99-4C73-E5E0-1E25-DB232BA80F32": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "Child process: creates files, modifies file attributes, writes file contents",
+      "technique": "T1105",
+      "tactic": "Command and Control"
+    },
+    "93E0C854-95A4-FE1B-245B-6E217A409764": {
+      "type": "FILE_OBJECT_FILE",
+      "behavior": "File created and written by the malicious process (payload drop)",
+      "technique": "T1105",
+      "tactic": "Command and Control"
+    },
+    "96FE4223-D38F-9D49-C00F-D51954FA7DD4": {
+      "type": "FILE_OBJECT_FILE",
+      "behavior": "Malicious file loaded as a library and subsequently deleted",
+      "technique": "T1055",
+      "tactic": "Defense Evasion"
+    },
+    "D64910E4-454E-156D-BF13-BC7AD66F7A6A": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "Backdoor process: 722 network connections, library loads, file read/write, child-process creation",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "33DC207A-F420-829C-2CC4-8E93B726FC98": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "Child process: C2 communication plus deletion of malicious files (forensic cleanup)",
+      "technique": "T1070",
+      "tactic": "Defense Evasion"
+    },
+    "66C31C14-7518-0945-62A9-A7BE2735B99A": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "Child process: loads libraries, writes files",
+      "technique": "T1059",
+      "tactic": "Execution"
+    },
+    "7E6F9A12-EDFA-C87E-B4D5-DB6C782DC6DC": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.118 → 162.66.239.75:80 — C2 connection",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "87EBF3B7-6691-15A0-A756-A0C28908FD4F": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.118 → 128.55.12.73:22 — SSH lateral movement",
+      "technique": "T1021",
+      "tactic": "Lateral Movement"
+    },
+    "CAE9180E-98E9-A5FB-A375-E99EAECC8B7C": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.118 → 61.130.69.232:80 — C2 connection",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "2A25D735-8DD9-0026-DE60-544F311757AE": {
+      "type": "NetFlowObject",
+      "behavior": "128.55.12.118 → 17.146.0.252:80 — suspicious outbound connection",
+      "technique": "T1071",
+      "tactic": "Command and Control"
+    },
+    "44AADA66-735A-1904-D7ED-8545DD956779": {
+      "type": "SUBJECT_PROCESS",
+      "behavior": "Child process: loads libraries, deletes files",
+      "technique": "T1070",
+      "tactic": "Defense Evasion"
+    }
+  }
+}
