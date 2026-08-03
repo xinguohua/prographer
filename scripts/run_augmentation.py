@@ -55,17 +55,9 @@ def parse_args(argv=None):
                    help="LLM model key from configs/athena.yaml::llm.models")
     p.add_argument("--max-anchors", type=int, default=None,
                    help="cap on benign anchors processed (smoke testing)")
-    p.add_argument("--no-llm", action="store_true",
-                   help="skip LLM-guided edge/semantic mutation (structural only)")
-    p.add_argument("--mock-llm", action="store_true",
-                   help="use a fake LLM that returns an empty JSON list (exercises code path without API calls)")
     p.add_argument("--output-dir", default="outputs/augmented_graphs",
                    help="directory for admitted augmented graphs and manifest.json")
     return p.parse_args(argv)
-
-
-def _mock_llm_fn(_prompt: str) -> str:
-    return "[]"
 
 
 def _build_llm_fn(model_name: str, model_cfg: dict):
@@ -127,6 +119,7 @@ def main(argv=None):
     max_retries = int(aug_cfg.get("max_retries", 3))
     delta_h_lower = float(aug_cfg.get("delta_h_lower", 0.30))
     delta_h_upper = float(aug_cfg.get("delta_h_upper", 0.95))
+    max_region_size = int(aug_cfg.get("max_region_size", 32))
     model_name = args.model or llm_cfg.get("default", "gpt-4o")
     model_cfg = (llm_cfg.get("models", {}) or {}).get(model_name, {})
     if model_name not in (llm_cfg.get("models", {}) or {}):
@@ -151,15 +144,8 @@ def main(argv=None):
 
     entity_ops, type_attrs = build_historical_profiles(benign_graphs)
     benign_commands, benign_args_set, _benign_files = _collect_benign_corpus(benign_graphs)
-    if args.no_llm:
-        llm_fn = None
-        llm_tag = "off"
-    elif args.mock_llm:
-        llm_fn = _mock_llm_fn
-        llm_tag = "mock"
-    else:
-        llm_fn = _build_llm_fn(model_name, model_cfg)
-        llm_tag = model_name
+    llm_fn = _build_llm_fn(model_name, model_cfg)
+    llm_tag = model_name
 
     print(
         f"[augmentation] dataset={args.dataset} scene={args.scene} "
@@ -177,6 +163,7 @@ def main(argv=None):
         "max_retries": max_retries,
         "delta_h_lower": delta_h_lower,
         "delta_h_upper": delta_h_upper,
+        "max_region_size": max_region_size,
         "llm": llm_tag,
         "admitted": [],
         "rejected": 0,
@@ -184,7 +171,11 @@ def main(argv=None):
     for g_anchor, b_idx in benign_graphs:
         candidates = top_k_similar_attacks(g_anchor, attack_graphs, k=top_k)
         for g_attack, attack_idx, sim in candidates:
-            regions = aligned_region_search(g_anchor, g_attack)
+            regions = aligned_region_search(
+                g_anchor,
+                g_attack,
+                max_region_size=max_region_size,
+            )
             if not regions:
                 continue
             for region_rank, (benign_region, attack_region, pi_map, score) in enumerate(regions[:top_m]):

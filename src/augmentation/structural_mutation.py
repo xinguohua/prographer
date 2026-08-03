@@ -2,14 +2,14 @@
 
 For each benign anchor G_b:
 1. WL-subtree retrieval yields the Top-K most similar attack snapshots.
-2. For each attack snapshot, locate attack nodes, choose the best seed
-   pairing by lightweight matching, then BFS-align an attack region S'.
+2. For each attack snapshot, score every compatible cross-graph node pair
+   with Jaccard similarity, then BFS-align an attack region S' from the best
+   seeds.
 3. Replace the aligned region of G_b with S' to produce the mutated graph.
 """
 from __future__ import annotations
 from collections import deque
 from typing import List, Tuple, Dict, Optional
-import random
 
 try:
     import igraph as ig
@@ -40,12 +40,7 @@ def aligned_region_search(
     g_b, g_a,
     max_region_size: int = 32,
 ) -> List[Tuple[list, list, dict, float]]:
-    """
-    BFS alignsubgraphregion. 
-
-    optimize: first matchmost startto, againonlytomost to BFS. 
-    from O(seeds × procs_b) time BFS to O(seeds) time BFS. 
-    """
+    """Search aligned regions using Jaccard-seeded BFS as described in §IV.C."""
     attack_nodes_a = set()
     for i in range(g_a.vcount()):
         if g_a. vs [i].attributes().get("label", 0) == 1:
@@ -67,45 +62,30 @@ def aligned_region_search(
                or "subject" in str(g_a. vs [i].attributes().get("type", "")).lower()
         ]
 
-    type_to_nodes_b: Dict[str, List[int]] = {}
-    for i in range(g_b.vcount()):
-        t = str(g_b. vs [i].attributes().get("type", "")).lower()
-        type_to_nodes_b.setdefault(t, []).append(i)
-
     if not attack_seeds_a:
         return []
 
-    if len(attack_seeds_a) > 10:
-        attack_first = [s for s in attack_seeds_a if s in attack_nodes_a]
-        others = [s for s in attack_seeds_a if s not in attack_nodes_a]
-        attack_seeds_a = (attack_first + others)[:10]
-
     candidates = []
-
+    benign_tokens = {v: _token_set(g_b, v) for v in range(g_b.vcount())}
+    attack_tokens = {w: _token_set(g_a, w) for w in attack_seeds_a}
+    seed_pairs = []
     for w in attack_seeds_a:
-        # ---- match:  G_b inmost tonode (O(n) Jaccard  vs more, not BFS)  ----
-        w_type = str(g_a. vs [w].attributes().get("type", "")).lower()
-        w_tokens = _token_set(g_a, w)
+        w_type = str(g_a.vs[w].attributes().get("type", "")).lower()
+        for v in range(g_b.vcount()):
+            v_type = str(g_b.vs[v].attributes().get("type", "")).lower()
+            type_match = w_type == v_type
+            process_compatible = (
+                ("process" in w_type or "subject" in w_type)
+                and ("process" in v_type or "subject" in v_type)
+            )
+            if not type_match and not process_compatible:
+                continue
+            sim = _jaccard_tok(benign_tokens[v], attack_tokens[w])
+            seed_pairs.append((sim, 1 if w in attack_nodes_a else 0, w, v))
 
-        # classnodein Jaccard highest's 
-        same_type = type_to_nodes_b.get(w_type, [])
-        if not same_type:
-            for t_key in type_to_nodes_b:
-                if "process" in t_key or "subject" in t_key:
-                    same_type = type_to_nodes_b[t_key]
-                    break
-        if not same_type:
-            continue
+    seed_pairs.sort(key=lambda item: (-item[0], -item[1], item[2], item[3]))
 
-        if len(same_type) > 20:
-            candidates_b = random.sample(same_type, 20)
-        else:
-            candidates_b = same_type
-
-        best_v = max(candidates_b, key=lambda u: _jaccard_tok(_token_set(g_b, u), w_tokens))
-
-        # ---- onlytomost to1time BFS ----
-        v = best_v
+    for _seed_sim, _is_attack_seed, w, v in seed_pairs:
         pi = {w: v}
         S_b = {v}
         S_a = {w}
@@ -125,11 +105,11 @@ def aligned_region_search(
             )
 
             for w_prime in neighbors_a_sorted:
-                type_a = str(g_a. vs [w_prime].attributes().get("type", ""))
+                type_a = str(g_a. vs [w_prime].attributes().get("type", "")).lower()
 
                 type_consistent = [
                     u for u in neighbors_b
-                    if str(g_b. vs [u].attributes().get("type", "")) == type_a
+                    if str(g_b. vs [u].attributes().get("type", "")).lower() == type_a
                 ]
 
                 if type_consistent:

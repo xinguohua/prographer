@@ -54,7 +54,6 @@ contrastive:
 
 # Detection head (Paper §IV.D).
 detection:
-  threshold:       0.01 # DETECTION_THRESHOLD — anomaly score cutoff
   mlp_hidden:      256
   epochs:          3
   use_temporal:    true

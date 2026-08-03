@@ -42,8 +42,6 @@ SEQUENCE_LENGTH_L = int(_cfg.get("sequence", {}).get("length", 12))
 MIN_SEQUENCE_LENGTH = int(_cfg.get("sequence", {}).get("min_length", 3))
 SEQUENCE_ADAPT_RATIO = float(_cfg.get("sequence", {}).get("adapt_ratio", 0.5))
 
-DETECTION_THRESHOLD = float(_cfg.get("detection", {}).get("threshold", 0.01))
-
 
 def get_time_split_config() -> Dict[str, Any]:
     """Return the subset of config consumed by the snapshot-window splitter."""
@@ -53,7 +51,6 @@ def get_time_split_config() -> Dict[str, Any]:
         "sequence_length":          SEQUENCE_LENGTH_L,
         "min_sequence_length":      MIN_SEQUENCE_LENGTH,
         "sequence_adapt_ratio":     SEQUENCE_ADAPT_RATIO,
-        "detection_threshold":      DETECTION_THRESHOLD,
         "snapshot_size":            SNAPSHOT_SIZE,
         "forgetting_rate":          FORGETTING_RATE,
     }
