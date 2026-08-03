@@ -1,12 +1,30 @@
-# Attack-technique sequence library (sample).
+# Curated attack-technique sequence library for tactic-level alignment.
 # Rules:
 # - one sequence per line; whitespace or comma delimited
 # - lines starting with `#` are comments
 # - matched against predicted technique sequences via LCS/min
 #   (paper IV.E, see src/interpretation/global_alignment.py)
 
-# Representative MITRE ATT&CK sequences.
-T1547/004,T1078
-T1547 T1055 T1027
-T1059,T1053,T1105
+# DARPA E3 / E5 host-level APT patterns.
+T1189 T1203 T1059 T1105 T1041
+T1078 T1059 T1547 T1105 T1041
+T1059 T1055 T1027 T1105 T1041
+T1190 T1059 T1005 T1560 T1041
+T1566 T1204 T1059 T1105 T1071
+T1059 T1083 T1005 T1041
+T1059 T1033 T1082 T1016 T1105
 T1059 T1053 T1105 T1041 T1027
+T1547 T1059 T1105 T1071 T1041
+T1059 T1070 T1027 T1105
+
+# OpTC / ATLAS Windows campaign patterns.
+T1566 T1204 T1059 T1105 T1020
+T1078 T1059 T1003 T1021 T1041
+T1059 T1057 T1082 T1005 T1048
+T1203 T1059 T1218 T1105 T1071
+T1059 T1113 T1074 T1041
+T1059 T1007 T1018 T1021 T1105
+T1059 T1555 T1074 T1048
+T1059 T1106 T1027 T1071 T1041
+T1547/004 T1059 T1105 T1041
+T1059 T1053 T1105

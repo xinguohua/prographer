@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import deque
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,6 @@ from src.interpretation.tactic_alignment import (
     best_tactic_match,
     load_tactic_sequence_library,
     load_tech_to_tactic,
-    techniques_to_tactics,
 )
 from src.snapshot_construction.graph_loader import get_handler
 from src.utils.config import load_config
@@ -136,6 +136,28 @@ def _mark_detected(snap, detected_uuids: set) -> int:
     return count
 
 
+def _snapshot_time_seconds(snap, fallback_index: int) -> float:
+    """Return the latest timestamp observed in a snapshot.
+
+    DARPA CDM timestamps are nanoseconds in the released parsers; OpTC stores
+    seconds. If a snapshot has no usable timestamp, fall back to snapshot order
+    at one-minute spacing, matching the paper's window construction.
+    """
+    values = []
+    for seq in (getattr(snap, "vs", []), getattr(snap, "es", [])):
+        try:
+            for item in seq:
+                attrs = item.attributes()
+                if "timestamp" in attrs:
+                    values.append(float(attrs.get("timestamp") or 0.0))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return float(fallback_index) * 60.0
+    ts = max(values)
+    return ts / 1_000_000_000.0 if ts > 1e12 else ts
+
+
 def main(argv=None):
     args = parse_args(argv)
     cfg = load_config(Path(args.config))
@@ -205,6 +227,8 @@ def main(argv=None):
 
     per_snapshot = []
     technique_seq: list = []
+    persistent_queue = deque()
+    retention_seconds = float(retention_days) * 24 * 60 * 60
     for sidx in mal_indices:
         snap = handler.snapshots[sidx]
         mal_nodes = _malicious_nodes(snap, malicious_uuids if args.use_ground_truth else set())
@@ -230,17 +254,28 @@ def main(argv=None):
             continue
 
         technique_seq.append(tech_id)
+        snap_time = _snapshot_time_seconds(snap, sidx)
+        tactic = tech_to_tactic.get(tech_id, "Unmapped")
+        if tactic != "Unmapped":
+            persistent_queue.append((snap_time, tactic))
+            while persistent_queue and snap_time - persistent_queue[0][0] > retention_seconds:
+                persistent_queue.popleft()
         per_snapshot.append({
             "snapshot": sidx,
+            "snapshot_time": snap_time,
             "malicious_nodes": len(mal_nodes),
             "key_path_edges": len(key_path),
             "technique": tech_id,
-            "tactic": tech_to_tactic.get(tech_id, "Unmapped"),
+            "tactic": tactic,
             "score": round(score, 4),
             "query_preview": query[:160],
         })
 
-    tactic_seq = techniques_to_tactics(technique_seq, mapping=tech_to_tactic)
+    tactic_seq = []
+    for _ts, tactic in persistent_queue:
+        if tactic_seq and tactic_seq[-1] == tactic:
+            continue
+        tactic_seq.append(tactic)
     best_lib_seq, best_score = best_tactic_match(
         tactic_seq, tactic_library=tactic_lib, min_ratio=min_ratio,
     )
@@ -264,6 +299,9 @@ def main(argv=None):
             "scene": args.scene,
             "technique_sequence": technique_seq,
             "tactic_sequence": tactic_seq,
+            "persistent_tactic_queue": [
+                {"timestamp": ts, "tactic": tactic} for ts, tactic in persistent_queue
+            ],
             "best_library_match": best_lib_seq,
             "best_lcs_min_ratio": best_score,
             "lcs_min_ratio": min_ratio,

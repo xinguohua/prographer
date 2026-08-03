@@ -69,7 +69,7 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 ## ATT&CK Knowledge Base (supp G.2 v)
 
 - `data/attack_knowledge/mitre_attack/technique_triples_{raw,transformed}.json` — operation-level action triples for each ATT&CK technique, used by `src/interpretation/semantic_matching.py` as the retrieval corpus.
-- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released multi-stage attack-sequence sample library, used by `src/interpretation/global_alignment.py` for the paper's LCS/min alignment. Replace or extend this file with a larger sequence library when running broader sequence-retrieval studies.
+- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released curated multi-stage attack-sequence library, used by `src/interpretation/global_alignment.py` for the paper's LCS/min alignment. The file contains more sequences than the Top-5 setting used in the interpretation study and can be extended with the same format for broader sequence-retrieval studies.
 
 ## Prompt Registry (supp G.2 ii)
 
@@ -88,8 +88,10 @@ The four prompt templates in `prompts/` are loaded by the augmentation pipeline:
 # Augmentation (paper §IV.B + §IV.C): writes outputs/augmented_graphs/
 python scripts/run_augmentation.py   --config configs/athena.yaml --dataset cadets
 
-# Detection (paper §IV.A + §IV.D): writes held-out predictions and metrics
+# Detection (paper §IV.A + §IV.D): consumes admitted augmentations when present,
+# then writes held-out predictions and metrics
 python scripts/run_detection.py      --config configs/athena.yaml --dataset cadets \
+  --augmented-dir outputs/augmented_graphs \
   --output outputs/detection_predictions.json
 
 # Interpretation (paper §IV.E): consumes detector positives, not ground truth
@@ -99,7 +101,7 @@ python scripts/run_interpretation.py --config configs/athena.yaml --dataset cade
 
 Supported `--dataset` values: `cadets, theia, trace, clearscope` (DARPA E3); `cadets5, theia5` (DARPA E5); `optcday1` (OpTC day 1); `atlas` (ATLAS).
 
-Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's chronological protocol by default: snapshots are kept in construction order, each benign/attack block is split by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out test snapshots. `train_metrics` and the exact snapshot split are included for auditability.
+Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's chronological protocol by default: snapshots are kept in construction order, each benign/attack block is split by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out test snapshots. If `outputs/augmented_graphs/manifest.json` exists, admitted augmented graphs are loaded as contrastive hard negatives through the encoder's mutation map; the output JSON records the augmentation manifest and loaded graph count. `train_metrics` and the exact snapshot split are included for auditability.
 
 ## Configuration
 
