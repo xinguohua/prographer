@@ -56,7 +56,7 @@ contrastive:
 detection:
   threshold:       0.01 # DETECTION_THRESHOLD — anomaly score cutoff
   mlp_hidden:      256
-  epochs:          50
+  epochs:          3
   use_temporal:    true
   split_mode:      date_partition_benign_days_and_attack_days
   train_ratio:     0.70

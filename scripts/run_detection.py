@@ -310,7 +310,7 @@ def main(argv=None):
     path_map = cfg.get("paths", {})
     det_cfg = cfg.get("detection", {})
     split_mode = str(det_cfg.get("split_mode", "date_partition_benign_days_and_attack_days"))
-    if split_mode not in {"date_partition_benign_days_and_attack_days", "chronological_by_snapshot_timestamp"}:
+    if split_mode != "date_partition_benign_days_and_attack_days":
         raise ValueError(f"unsupported detection.split_mode: {split_mode}")
 
     handler = prepare_data(path_map, args.dataset, args.scene)
@@ -380,14 +380,14 @@ def main(argv=None):
         print("[node-detection] no node embeddings generated; aborting")
         return
 
-    epochs = args.epochs or int(det_cfg.get("epochs", 50))
+    epochs = args.epochs or int(det_cfg.get("epochs", 3))
     mlp_hidden = int(det_cfg.get("mlp_hidden", 256))
     train_snapshot_set = set(train_snapshot_ids)
     test_snapshot_set = set(test_snapshot_ids)
     train_mask = np.asarray([int(sid) in train_snapshot_set for sid in sids], dtype=bool)
     test_mask = np.asarray([int(sid) in test_snapshot_set for sid in sids], dtype=bool)
     if not bool(train_mask.any()):
-        raise RuntimeError("no training nodes after chronological split")
+        raise RuntimeError("no training nodes after date-partition split")
     if not bool(test_mask.any()):
         test_mask = train_mask.copy()
     benign_train_mask = train_mask & (y == 0)

@@ -103,6 +103,19 @@ def _build_llm_fn(model_name: str, model_cfg: dict):
     return llm_fn
 
 
+def _replaced_region_nodes(g) -> set[int]:
+    if g is None or g.vcount() == 0:
+        return set()
+    attrs = set(g.vs.attributes())
+    if "_athena_replaced_region" not in attrs:
+        return set()
+    return {
+        int(idx)
+        for idx, flag in enumerate(g.vs["_athena_replaced_region"])
+        if bool(flag)
+    }
+
+
 def main(argv=None):
     args = parse_args(argv)
     cfg = load_config(Path(args.config))
@@ -183,7 +196,10 @@ def main(argv=None):
                     if g_mut is None:
                         last_failed = ["structural_replacement"]
                         break
-                    replaced = set(benign_region)
+                    replaced = _replaced_region_nodes(g_mut)
+                    if not replaced:
+                        last_failed = ["structural_replacement_region"]
+                        break
                     g_mut, _edge_actions = apply_edge_mutation_llm(
                         g_mut, replaced, llm_fn=llm_fn,
                     )

@@ -45,7 +45,7 @@ class MLPConfig:
     hidden_dim: int = 128
     dropout: float = 0.3
     lr: float = 1e-3
-    num_epochs: int = 50
+    num_epochs: int = 3
     batch_size: int = 64
     model_save_path: str = "mlp_classifier.pth"
     meta_save_path: str = "mlp_meta.pkl"

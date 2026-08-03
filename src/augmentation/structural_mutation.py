@@ -202,11 +202,12 @@ def subgraph_replacement(
         benign_to_mut: Dict[int, int] = {}
         attack_to_mut: Dict[int, int] = {}
 
-        def add_vertex(attrs: dict) -> int:
+        def add_vertex(attrs: dict, replaced_region: bool = False) -> int:
             idx = g_mut.vcount()
             g_mut.add_vertices(1)
             for key, value in attrs.items():
                 g_mut.vs[idx][key] = value
+            g_mut.vs[idx]["_athena_replaced_region"] = bool(replaced_region)
             return idx
 
         def add_edge(src: int, dst: int, attrs: dict) -> None:
@@ -220,10 +221,16 @@ def subgraph_replacement(
 
         for v_idx in range(g_b.vcount()):
             if v_idx not in S_b_set:
-                benign_to_mut[v_idx] = add_vertex(dict(g_b.vs[v_idx].attributes()))
+                benign_to_mut[v_idx] = add_vertex(
+                    dict(g_b.vs[v_idx].attributes()),
+                    replaced_region=False,
+                )
 
         for w_idx in S_a_nodes:
-            attack_to_mut[w_idx] = add_vertex(dict(g_a.vs[w_idx].attributes()))
+            attack_to_mut[w_idx] = add_vertex(
+                dict(g_a.vs[w_idx].attributes()),
+                replaced_region=True,
+            )
 
         for e_idx in range(g_b.ecount()):
             e = g_b.es[e_idx]

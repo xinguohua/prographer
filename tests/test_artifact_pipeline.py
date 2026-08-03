@@ -115,6 +115,12 @@ def test_subgraph_replacement_inserts_unmatched_attack_nodes_and_redirects_bound
     assert g_mut is not None
     assert "benign" not in set(g_mut.vs["name"])
     assert {"attack-proc", "attack-file", "ctx", "outside"} == set(g_mut.vs["name"])
+    replaced = {
+        g_mut.vs[idx]["name"]
+        for idx, flag in enumerate(g_mut.vs["_athena_replaced_region"])
+        if bool(flag)
+    }
+    assert replaced == {"attack-proc", "attack-file"}
     edges = {(g_mut.vs[e.source]["name"], g_mut.vs[e.target]["name"], e["actions"]) for e in g_mut.es}
     assert ("ctx", "attack-proc", "read") in edges
     assert ("attack-proc", "outside", "write") in edges

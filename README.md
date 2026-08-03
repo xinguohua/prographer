@@ -148,6 +148,7 @@ Defaults in `configs/athena.yaml` match the artifact configuration used by the r
 | δ_h | WL similarity range (hardness check) | [0.30, 0.95] | augmentation |
 | γ | mapping confidence cutoff | 0.50 | interpretation |
 | temporal | GRU temporal encoder | enabled | detection |
+| epochs | detector training epochs | 3 | detection |
 | train ratio | attack-day detector training split | 0.70 | detection |
 | T_max | tactic queue retention window | 7 days | interpretation |
 | LCS/min | sequence-alignment cutoff | 0.60 | interpretation |
