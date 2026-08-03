@@ -11,7 +11,7 @@ ATHENA has four stages:
 1. **Snapshot construction.** Audit events are partitioned into 1-minute non-overlapping windows; each window is materialized as a typed provenance graph and decomposed into node-centred *r*-hop subgraphs. → `src/snapshot_construction/`.
 2. **LLM-guided graph augmentation.** For each benign anchor, structurally similar attack subgraphs are retrieved via the Weisfeiler–Leman subtree kernel, an LLM-guided edge mutation decides which boundary edges between the substituted attack region and the surrounding context to ADD / REMOVE / KEEP, and three semantic-mutation strategies rewrite the attack process node's command name + arguments to blend into the benign context. A unified verification step filters mutations that violate operation legality, attribute feasibility, imperceptibility, or hardness. → `src/augmentation/`.
 3. **Adaptive contrastive learning and node-level detection.** A 3-layer typed GIN with per-layer GRU temporal state is trained with a hard-sample-weighted supervised contrastive loss. A 2-layer MLP head consumes the per-node embedding produced by the encoder and emits a benign/malicious label for each node. → `src/detection/`.
-4. **Technique mapping and tactic-level alignment.** Each detector-flagged node is mapped to a parent-level MITRE ATT&CK technique via Sentence-BERT similarity over the technique knowledge base; the techniques inside the same snapshot are aggregated and reduced to the corresponding tactic sequence, which is then aligned against the multi-stage tactic-sequence library using an LCS-F1 score that penalizes both missing and extra stages. → `src/interpretation/`.
+4. **Technique mapping and tactic-level alignment.** Each detector-flagged node is mapped to a parent-level MITRE ATT&CK technique via Sentence-BERT similarity over the technique knowledge base; the techniques inside the same snapshot are aggregated into a persistent tactic queue and aligned against the multi-stage tactic-sequence library using the paper's LCS/min criterion. → `src/interpretation/`.
 
 ## Repository Layout
 
@@ -26,7 +26,7 @@ ATHENA has four stages:
 │   ├── snapshot_construction/  # 1-min provenance snapshots + r-hop ego subgraphs
 │   ├── augmentation/           # WL retrieval + structural / semantic / edge mutation + verifier
 │   ├── detection/              # typed GIN + GRU encoder, contrastive loss, node MLP head
-│   ├── interpretation/         # node → technique mapping → tactic sequence → LCS-F1 alignment
+│   ├── interpretation/         # node → technique mapping → tactic sequence → LCS/min alignment
 │   └── utils/                  # config loader, timing helpers, LLM client
 └── scripts/
     ├── run_augmentation.py     # writes admitted augmented graphs + manifest
@@ -69,7 +69,7 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 ## ATT&CK Knowledge Base (supp G.2 v)
 
 - `data/attack_knowledge/mitre_attack/technique_triples_{raw,transformed}.json` — operation-level action triples for each ATT&CK technique, used by `src/interpretation/semantic_matching.py` as the retrieval corpus.
-- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released multi-stage attack-sequence sample library, used by `src/interpretation/global_alignment.py` for LCS-F1 alignment. Replace or extend this file with a larger sequence library when running broader sequence-retrieval studies.
+- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released multi-stage attack-sequence sample library, used by `src/interpretation/global_alignment.py` for the paper's LCS/min alignment. Replace or extend this file with a larger sequence library when running broader sequence-retrieval studies.
 
 ## Prompt Registry (supp G.2 ii)
 
@@ -126,7 +126,8 @@ Defaults in `configs/athena.yaml` match the artifact configuration used by the r
 | top_m | accepted mutations per anchor | 3 | augmentation |
 | δ_h | WL similarity range (hardness check) | [0.30, 0.95] | augmentation |
 | γ | mapping confidence cutoff | 0.50 | interpretation |
-| LCS-F1 | sequence-alignment cutoff | 0.60 | interpretation |
+| T_max | tactic queue retention window | 7 days | interpretation |
+| LCS/min | sequence-alignment cutoff | 0.60 | interpretation |
 
 ## Reproducibility Notes
 

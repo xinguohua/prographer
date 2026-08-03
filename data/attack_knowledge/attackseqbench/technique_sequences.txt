@@ -2,7 +2,7 @@
 # Rules:
 # - one sequence per line; whitespace or comma delimited
 # - lines starting with `#` are comments
-# - matched against predicted technique sequences via LCS
+# - matched against predicted technique sequences via LCS/min
 #   (paper IV.E, see src/interpretation/global_alignment.py)
 
 # Representative MITRE ATT&CK sequences.

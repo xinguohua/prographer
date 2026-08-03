@@ -60,7 +60,8 @@ interpretation:
   sentence_bert_model: all-MiniLM-L12-v2
   topk_candidates:     10
   gamma:               0.50  # confidence threshold below which a mapping is Unmapped
-  lcs_min_ratio:       0.60  # LCS-F1 cutoff for a hit
+  tactic_queue_retention_days: 7
+  lcs_min_ratio:       0.60  # LCS(Q,R) / min(|Q|, |R|) cutoff for a hit
 
 # LLM configuration (Supp E). Per-model settings live in this map; runtime
 # selects a row by `name` and reads the rest. The API key itself is read from

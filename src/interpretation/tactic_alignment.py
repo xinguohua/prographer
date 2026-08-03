@@ -1,9 +1,9 @@
-"""Technique → tactic aggregation and tactic-sequence LCS alignment.
+"""Technique → tactic aggregation and tactic-sequence LCS/min alignment.
 
 The semantic matcher emits parent-level MITRE ATT&CK techniques (e.g. T1071);
 the global interpretation stage aggregates them to the coarser ATT&CK tactic
 layer (e.g. ``Command and Control``) and aligns the resulting tactic sequence
-against the attack-sequence library via LCS.
+against the attack-sequence library via the paper's LCS/min criterion.
 """
 from __future__ import annotations
 

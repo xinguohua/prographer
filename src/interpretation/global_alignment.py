@@ -1,16 +1,16 @@
-"""Paper §IV.E — Global sequence alignment via order-aware sequence overlap.
+"""Paper §IV.E — Global sequence alignment via longest common subsequence.
 
 A predicted ATT&CK technique sequence is matched against the curated
 attack-sequence library at
 ``data/attack_knowledge/attackseqbench/technique_sequences.txt`` using
-longest common subsequence (LCS). The admission score is the F1-style
-harmonic mean of reference coverage and predicted precision, so omitted
-stages and extra inserted stages are both penalized.
+longest common subsequence (LCS). The released implementation follows the
+paper criterion ``LCS(Q, R) / min(|Q|, |R|)`` and admits sequences whose score
+exceeds ``lcs_min_ratio`` in ``configs/athena.yaml::interpretation``.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 def load_technique_sequence_library(path: Optional[str] = None) -> List[List[str]]:
@@ -57,25 +57,14 @@ def lcs_length(a: List[str], b: List[str]) -> int:
     return prev[n]
 
 
-def lcs_f1_score(predicted: List[str], reference: List[str]) -> Tuple[float, Dict[str, float]]:
-    """Return an order-aware LCS F1 score and its components.
+def lcs_min_ratio(predicted: List[str], reference: List[str]) -> float:
+    """Return the paper's LCS consistency score.
 
-    ``coverage = LCS / len(reference)`` rewards matching the curated attack
-    chain, while ``precision = LCS / len(predicted)`` penalizes extra stages
-    in the predicted sequence. Their harmonic mean prevents a sequence such as
-    ``Initial, Execution, Exfiltration`` from fully matching
-    ``Initial, Persistence, Execution, Exfiltration``.
+    The denominator follows Eq. (8): ``min(|Q|, |R_j|)``.
     """
     if not predicted or not reference:
-        return 0.0, {"lcs": 0.0, "coverage": 0.0, "precision": 0.0}
-    lcs = lcs_length(predicted, reference)
-    coverage = lcs / len(reference)
-    precision = lcs / len(predicted)
-    if coverage + precision == 0:
-        f1 = 0.0
-    else:
-        f1 = 2 * coverage * precision / (coverage + precision)
-    return f1, {"lcs": float(lcs), "coverage": coverage, "precision": precision}
+        return 0.0
+    return lcs_length(predicted, reference) / min(len(predicted), len(reference))
 
 
 def lcs_indices_keep_mask(a: List[str], b: List[str]) -> Tuple[List[bool], int]:
@@ -110,18 +99,13 @@ def best_library_match(
     library: List[List[str]],
     min_ratio: float = 0.60,
 ) -> Tuple[Optional[List[str]], float]:
-    """Return the library sequence with the highest LCS-F1 score.
-
-    The previous ``LCS / len(reference)`` score was insensitive to extra
-    predicted tactics. LCS-F1 keeps the subsequence ordering property while
-    penalizing both missing reference stages and inserted predicted stages.
-    """
+    """Return the library sequence with the highest paper LCS/min score."""
     best_seq: Optional[List[str]] = None
     best_score: float = 0.0
     for ref in library:
         if not ref:
             continue
-        score, _parts = lcs_f1_score(predicted, ref)
+        score = lcs_min_ratio(predicted, ref)
         if score > best_score:
             best_score = score
             best_seq = ref
@@ -136,7 +120,7 @@ def filter_positive_by_tech_lcs(
     min_ratio: float = 0.60,
 ) -> List[bool]:
     """Per-snapshot: keep a positive prediction only if its predicted technique
-    sequence has an LCS-F1 match in the library above ``min_ratio``. Returns a
+    sequence has an LCS/min match in the library above ``min_ratio``. Returns a
     boolean mask parallel to ``predicted_per_snapshot``."""
     keep: List[bool] = []
     for predicted in predicted_per_snapshot:

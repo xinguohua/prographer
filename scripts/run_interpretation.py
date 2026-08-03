@@ -7,7 +7,7 @@ For each snapshot marked malicious in the loaded dataset:
 3. Map the query to the most similar parent-level ATT&CK technique via
    Sentence-BERT cosine similarity over the technique knowledge base.
 4. Aggregate the per-snapshot top-1 techniques into a sequence, fold them
-   to the corresponding ATT&CK tactic sequence, and LCS-F1-align against the
+   to the corresponding ATT&CK tactic sequence, and LCS-align against the
    curated attack-sequence library.
 
 Usage:
@@ -26,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.detection.node_labels import load_malicious_uuids
 from src.interpretation.attack_subgraph import extract_attack_subgraph, extract_key_path
-from src.interpretation.global_alignment import lcs_f1_score
+from src.interpretation.global_alignment import lcs_min_ratio
 from src.interpretation.semantic_matching import TechniqueSemanticMapper, snapshot_to_query
 from src.interpretation.tactic_alignment import (
     best_tactic_match,
@@ -141,8 +141,9 @@ def main(argv=None):
     cfg = load_config(Path(args.config))
     interp_cfg = cfg.get("interpretation", {})
     top_k = args.top_k or int(interp_cfg.get("topk_candidates", 10))
-    gamma = float(interp_cfg.get("gamma", 0.40))
+    gamma = float(interp_cfg.get("gamma", 0.50))
     min_ratio = float(interp_cfg.get("lcs_min_ratio", 0.60))
+    retention_days = int(interp_cfg.get("tactic_queue_retention_days", 7))
 
     if not args.use_ground_truth and not args.detections:
         raise SystemExit(
@@ -196,7 +197,8 @@ def main(argv=None):
     print(
         f"[interpretation] dataset={args.dataset} scene={args.scene} "
         f"malicious_snapshots={len(mal_indices)} mapper_top_k={top_k} "
-        f"gamma={gamma} lcs_f1_min={min_ratio} tactic_lib_size={len(tactic_lib)} "
+        f"gamma={gamma} tactic_queue_retention_days={retention_days} "
+        f"lcs_min_ratio={min_ratio} tactic_lib_size={len(tactic_lib)} "
         f"input={'ground_truth' if args.use_ground_truth else args.detections} "
         f"labels_loaded={len(malicious_uuids)} nodes_marked={marked_total}"
     )
@@ -245,12 +247,12 @@ def main(argv=None):
 
     print(f"\n[interpretation] technique sequence (len={len(technique_seq)}): {technique_seq}")
     print(f"[interpretation] tactic    sequence (len={len(tactic_seq)}): {tactic_seq}")
-    print(f"[interpretation] best library match: {best_lib_seq} (LCS-F1={best_score:.2f}"
+    print(f"[interpretation] best library match: {best_lib_seq} (LCS/min={best_score:.2f}"
           f", min_ratio={min_ratio:.2f}, {'HIT' if best_lib_seq else 'NO HIT'})")
     if tactic_lib and tactic_seq:
-        all_scores = [(ref, lcs_f1_score(tactic_seq, ref)[0]) for ref in tactic_lib if ref]
+        all_scores = [(ref, lcs_min_ratio(tactic_seq, ref)) for ref in tactic_lib if ref]
         all_scores.sort(key=lambda x: -x[1])
-        print("[interpretation] LCS-F1 scores vs every library sequence:")
+        print("[interpretation] LCS/min scores vs every library sequence:")
         for ref, r in all_scores:
             print(f"    ratio={r:.2f}  ref={ref}")
 
@@ -263,8 +265,9 @@ def main(argv=None):
             "technique_sequence": technique_seq,
             "tactic_sequence": tactic_seq,
             "best_library_match": best_lib_seq,
-            "best_lcs_f1": best_score,
-            "lcs_f1_min": min_ratio,
+            "best_lcs_min_ratio": best_score,
+            "lcs_min_ratio": min_ratio,
+            "tactic_queue_retention_days": retention_days,
             "input_mode": "ground_truth" if args.use_ground_truth else "detector_output",
             "detections": args.detections,
             "per_snapshot": per_snapshot,
