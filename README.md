@@ -26,7 +26,7 @@ ATHENA has four stages:
 │   ├── snapshot_construction/  # 1-min provenance snapshots + r-hop ego subgraphs
 │   ├── augmentation/           # WL retrieval + structural / semantic / edge mutation + verifier
 │   ├── detection/              # typed GIN + GRU encoder, contrastive loss, node MLP head
-│   ├── interpretation/         # node → technique mapping → tactic sequence → LCS alignment
+│   ├── interpretation/         # node → technique mapping → tactic sequence → LCS-F1 alignment
 │   └── utils/                  # config loader, timing helpers, LLM client
 └── scripts/
     ├── run_augmentation.py     # writes admitted augmented graphs + manifest
@@ -61,7 +61,7 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 
 ## Released Labels (supp G.1)
 
-`data/annotated_labels/` contains manually verified malicious-entity labels and ATT&CK technique labels for DARPA E3, DARPA E5, OpTC, and ATLAS, annotated by three doctoral researchers in system security based on the official attack reports. See paper §V.A.
+`data/annotated_labels/` contains manually verified malicious-entity labels and ATT&CK technique labels for DARPA E3, DARPA E5, OpTC, and ATLAS, annotated by three doctoral researchers in system security based on the official attack reports. The labels are used for supervised training and metric computation; interpretation consumes detector outputs by default.
 
 - `<dataset>/malicious_entities/` — one CDM-record UUID per line per scene, consumed by `collect_label_paths` in `src/snapshot_construction/_common.py`.
 - `<dataset>/attack_techniques/` — per-scene UUID → parent-level MITRE ATT&CK technique + tactic mapping.
@@ -69,7 +69,7 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 ## ATT&CK Knowledge Base (supp G.2 v)
 
 - `data/attack_knowledge/mitre_attack/technique_triples_{raw,transformed}.json` — operation-level action triples for each ATT&CK technique, used by `src/interpretation/semantic_matching.py` as the retrieval corpus.
-- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released multi-stage attack-sequence sample library, used by `src/interpretation/global_alignment.py` for LCS-F1 alignment. Replace or extend this file with the full benchmark library before reproducing paper-scale Top-K sequence experiments.
+- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released multi-stage attack-sequence sample library, used by `src/interpretation/global_alignment.py` for LCS-F1 alignment. Replace or extend this file with a larger sequence library when running broader sequence-retrieval studies.
 
 ## Prompt Registry (supp G.2 ii)
 
@@ -114,7 +114,7 @@ cp local_settings.example.py local_settings.py
 
 ## Hyperparameters (supp D)
 
-Defaults in `configs/athena.yaml` reproduce the values used in the paper:
+Defaults in `configs/athena.yaml` match the artifact configuration used by the released scripts:
 
 | Symbol | Meaning | Default | Section |
 |---|---|---|---|
