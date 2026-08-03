@@ -14,6 +14,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import pickle
 import sys
 from pathlib import Path
 
@@ -54,6 +56,8 @@ def parse_args(argv=None):
                    help="skip LLM-guided edge/semantic mutation (structural only)")
     p.add_argument("--mock-llm", action="store_true",
                    help="use a fake LLM that returns an empty JSON list (exercises code path without API calls)")
+    p.add_argument("--output-dir", default="outputs/augmented_graphs",
+                   help="directory for admitted augmented graphs and manifest.json")
     return p.parse_args(argv)
 
 
@@ -110,6 +114,11 @@ def main(argv=None):
     if args.max_anchors:
         benign_graphs = benign_graphs[:args.max_anchors]
 
+    out_dir = Path(args.output_dir)
+    if not out_dir.is_absolute():
+        out_dir = REPO_ROOT / out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     entity_ops, type_attrs = build_historical_profiles(benign_graphs)
     benign_commands, benign_args_set, _benign_files = _collect_benign_corpus(benign_graphs)
     if args.no_llm:
@@ -130,13 +139,24 @@ def main(argv=None):
 
     admitted = 0
     rejected = 0
+    manifest = {
+        "dataset": args.dataset,
+        "scene": args.scene,
+        "top_k": top_k,
+        "top_m": top_m,
+        "delta_h_lower": delta_h_lower,
+        "delta_h_upper": delta_h_upper,
+        "llm": llm_tag,
+        "admitted": [],
+        "rejected": 0,
+    }
     for g_anchor, b_idx in benign_graphs:
         candidates = top_k_similar_attacks(g_anchor, attack_graphs, k=top_k)
-        for g_attack, _attack_idx, _sim in candidates:
+        for g_attack, attack_idx, sim in candidates:
             regions = aligned_region_search(g_anchor, g_attack)
             if not regions:
                 continue
-            for benign_region, attack_region, pi_map, _score in regions[:top_m]:
+            for region_rank, (benign_region, attack_region, pi_map, score) in enumerate(regions[:top_m]):
                 g_mut = subgraph_replacement(
                     g_anchor, g_attack, benign_region, attack_region, pi_map,
                 )
@@ -160,10 +180,29 @@ def main(argv=None):
                 )
                 if passed:
                     admitted += 1
+                    graph_name = f"{args.dataset}_{args.scene or 'all'}_b{b_idx}_a{attack_idx}_r{region_rank}.pkl"
+                    graph_path = out_dir / graph_name
+                    with graph_path.open("wb") as f:
+                        pickle.dump(g_mut, f)
+                    manifest["admitted"].append({
+                        "graph": graph_name,
+                        "benign_snapshot": int(b_idx),
+                        "attack_snapshot": int(attack_idx),
+                        "retrieval_similarity": float(sim),
+                        "region_score": float(score),
+                        "replaced_nodes": sorted(int(x) for x in replaced),
+                    })
                 else:
                     rejected += 1
+                    manifest["rejected"] += 1
 
     print(f"[augmentation] dataset={args.dataset} admitted={admitted} rejected={rejected}")
+    manifest["admitted_count"] = admitted
+    manifest["rejected_count"] = rejected
+    manifest_path = out_dir / "manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    print(f"[augmentation] wrote {manifest_path}")
 
 
 if __name__ == "__main__":

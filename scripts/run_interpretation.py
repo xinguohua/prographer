@@ -7,7 +7,7 @@ For each snapshot marked malicious in the loaded dataset:
 3. Map the query to the most similar parent-level ATT&CK technique via
    Sentence-BERT cosine similarity over the technique knowledge base.
 4. Aggregate the per-snapshot top-1 techniques into a sequence, fold them
-   to the corresponding ATT&CK tactic sequence, and LCS-align against the
+   to the corresponding ATT&CK tactic sequence, and LCS-F1-align against the
    curated attack-sequence library.
 
 Usage:
@@ -26,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.detection.node_labels import load_malicious_uuids
 from src.interpretation.attack_subgraph import extract_attack_subgraph, extract_key_path
-from src.interpretation.global_alignment import lcs_length
+from src.interpretation.global_alignment import lcs_f1_score
 from src.interpretation.semantic_matching import TechniqueSemanticMapper, snapshot_to_query
 from src.interpretation.tactic_alignment import (
     best_tactic_match,
@@ -56,6 +56,10 @@ def parse_args(argv=None):
                    help="cap the number of malicious snapshots interpreted (smoke testing)")
     p.add_argument("--output", default=None,
                    help="optional JSON file to dump per-snapshot interpretation + alignment")
+    p.add_argument("--detections", default=None,
+                   help="JSON produced by scripts/run_detection.py; used as the interpretation input")
+    p.add_argument("--use-ground-truth", action="store_true",
+                   help="debug/evaluation mode: interpret released malicious UUIDs instead of detector output")
     return p.parse_args(argv)
 
 
@@ -103,6 +107,35 @@ def _mark_malicious(snap, malicious_uuids: set) -> int:
     return count
 
 
+def _load_detected_nodes(path: str) -> dict:
+    """Load detector positives from ``scripts/run_detection.py`` output.
+
+    Returns ``{snapshot_id: set(uuid)}``. Ground-truth labels in the detection
+    file are ignored here; they are only for metric reporting.
+    """
+    with Path(path).open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    out = {}
+    for row in payload.get("predictions", []):
+        if int(row.get("pred_label", 0)) != 1:
+            continue
+        sid = int(row["snapshot"])
+        out.setdefault(sid, set()).add(str(row["uuid"]))
+    return out
+
+
+def _mark_detected(snap, detected_uuids: set) -> int:
+    count = 0
+    for v in range(snap.vcount()):
+        attrs = snap.vs[v].attributes()
+        name = str(attrs.get("name", ""))
+        is_detected = name in detected_uuids
+        snap.vs[v]["label"] = 1 if is_detected else int(attrs.get("label", 0) or 0)
+        if is_detected:
+            count += 1
+    return count
+
+
 def main(argv=None):
     args = parse_args(argv)
     cfg = load_config(Path(args.config))
@@ -111,24 +144,42 @@ def main(argv=None):
     gamma = float(interp_cfg.get("gamma", 0.40))
     min_ratio = float(interp_cfg.get("lcs_min_ratio", 0.60))
 
+    if not args.use_ground_truth and not args.detections:
+        raise SystemExit(
+            "run_interpretation.py now requires --detections <run_detection.json>. "
+            "Use --use-ground-truth only for annotation/debug evaluation."
+        )
+
     handler = get_handler(args.dataset, True, cfg.get("paths", {}), scene_name=args.scene)
     handler.load()
     handler.build_graph(args.dataset)
 
-    mal_start = int(getattr(handler, "malicious_idx_start", -1) or -1)
-    mal_end = int(getattr(handler, "malicious_idx_end", -1) or -1)
-    if mal_start < 0 or mal_end < mal_start:
-        print(f"[interpretation] no malicious snapshots in {args.dataset}/{args.scene}")
-        return
+    malicious_uuids = set()
+    detected_by_snapshot = {}
+    if args.use_ground_truth:
+        mal_start = int(getattr(handler, "malicious_idx_start", -1) or -1)
+        mal_end = int(getattr(handler, "malicious_idx_end", -1) or -1)
+        if mal_start < 0 or mal_end < mal_start:
+            print(f"[interpretation] no malicious snapshots in {args.dataset}/{args.scene}")
+            return
+        mal_indices = list(range(mal_start, mal_end + 1))
+        malicious_uuids = load_malicious_uuids(args.dataset, args.scene or "")
+    else:
+        detected_by_snapshot = _load_detected_nodes(args.detections)
+        mal_indices = sorted(detected_by_snapshot)
+        if not mal_indices:
+            print(f"[interpretation] detector produced no malicious nodes in {args.detections}")
+            return
 
-    mal_indices = list(range(mal_start, mal_end + 1))
     if args.max_malicious is not None:
         mal_indices = mal_indices[: args.max_malicious]
 
-    malicious_uuids = load_malicious_uuids(args.dataset, args.scene or "")
     marked_total = 0
     for sidx in mal_indices:
-        marked_total += _mark_malicious(handler.snapshots[sidx], malicious_uuids)
+        if args.use_ground_truth:
+            marked_total += _mark_malicious(handler.snapshots[sidx], malicious_uuids)
+        else:
+            marked_total += _mark_detected(handler.snapshots[sidx], detected_by_snapshot.get(sidx, set()))
 
     triples_path = str(REPO_ROOT / "data" / "attack_knowledge"
                        / "mitre_attack" / "technique_triples_transformed.json")
@@ -145,7 +196,8 @@ def main(argv=None):
     print(
         f"[interpretation] dataset={args.dataset} scene={args.scene} "
         f"malicious_snapshots={len(mal_indices)} mapper_top_k={top_k} "
-        f"gamma={gamma} lcs_min_ratio={min_ratio} tactic_lib_size={len(tactic_lib)} "
+        f"gamma={gamma} lcs_f1_min={min_ratio} tactic_lib_size={len(tactic_lib)} "
+        f"input={'ground_truth' if args.use_ground_truth else args.detections} "
         f"labels_loaded={len(malicious_uuids)} nodes_marked={marked_total}"
     )
 
@@ -153,7 +205,7 @@ def main(argv=None):
     technique_seq: list = []
     for sidx in mal_indices:
         snap = handler.snapshots[sidx]
-        mal_nodes = _malicious_nodes(snap, malicious_uuids)
+        mal_nodes = _malicious_nodes(snap, malicious_uuids if args.use_ground_truth else set())
         if not mal_nodes:
             continue
 
@@ -187,18 +239,18 @@ def main(argv=None):
         })
 
     tactic_seq = techniques_to_tactics(technique_seq, mapping=tech_to_tactic)
-    best_lib_seq, best_ratio = best_tactic_match(
+    best_lib_seq, best_score = best_tactic_match(
         tactic_seq, tactic_library=tactic_lib, min_ratio=min_ratio,
     )
 
     print(f"\n[interpretation] technique sequence (len={len(technique_seq)}): {technique_seq}")
     print(f"[interpretation] tactic    sequence (len={len(tactic_seq)}): {tactic_seq}")
-    print(f"[interpretation] best library match: {best_lib_seq} (LCS ratio={best_ratio:.2f}"
+    print(f"[interpretation] best library match: {best_lib_seq} (LCS-F1={best_score:.2f}"
           f", min_ratio={min_ratio:.2f}, {'HIT' if best_lib_seq else 'NO HIT'})")
     if tactic_lib and tactic_seq:
-        all_scores = [(ref, lcs_length(tactic_seq, ref) / len(ref)) for ref in tactic_lib if ref]
+        all_scores = [(ref, lcs_f1_score(tactic_seq, ref)[0]) for ref in tactic_lib if ref]
         all_scores.sort(key=lambda x: -x[1])
-        print("[interpretation] LCS ratios vs every library sequence:")
+        print("[interpretation] LCS-F1 scores vs every library sequence:")
         for ref, r in all_scores:
             print(f"    ratio={r:.2f}  ref={ref}")
 
@@ -211,8 +263,10 @@ def main(argv=None):
             "technique_sequence": technique_seq,
             "tactic_sequence": tactic_seq,
             "best_library_match": best_lib_seq,
-            "best_lcs_ratio": best_ratio,
-            "lcs_min_ratio": min_ratio,
+            "best_lcs_f1": best_score,
+            "lcs_f1_min": min_ratio,
+            "input_mode": "ground_truth" if args.use_ground_truth else "detector_output",
+            "detections": args.detections,
             "per_snapshot": per_snapshot,
         }
         with out_path.open("w", encoding="utf-8") as f:

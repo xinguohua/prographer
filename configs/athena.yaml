@@ -31,10 +31,10 @@ sequence:
 # Typed-GIN node encoder (Paper §IV.D).
 gin:
   num_layers:   3
-  hidden_dim:   128   # D — embedding dimension (Supp D)
-  out_dim:      128
+  hidden_dim:   64    # D — embedding dimension (Supp D)
+  out_dim:      64
   dropout:      0.1
-  r_hop:        2     # r — neighbourhood radius for ego subgraphs
+  r_hop:        4     # r — neighbourhood radius for ego subgraphs
 
 # LLM-guided augmentation (Paper §IV.B / §IV.C; Supp A–C).
 augmentation:
@@ -59,8 +59,8 @@ detection:
 interpretation:
   sentence_bert_model: all-MiniLM-L12-v2
   topk_candidates:     10
-  gamma:               0.40  # confidence threshold below which a mapping is Unmapped
-  lcs_min_ratio:       0.60  # LCS_len / len(library_seq) cutoff for a hit
+  gamma:               0.50  # confidence threshold below which a mapping is Unmapped
+  lcs_min_ratio:       0.60  # LCS-F1 cutoff for a hit
 
 # LLM configuration (Supp E). Per-model settings live in this map; runtime
 # selects a row by `name` and reads the rest. The API key itself is read from

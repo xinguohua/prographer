@@ -11,7 +11,7 @@ ATHENA has four stages:
 1. **Snapshot construction.** Audit events are partitioned into 1-minute non-overlapping windows; each window is materialized as a typed provenance graph and decomposed into node-centred *r*-hop subgraphs. → `src/snapshot_construction/`.
 2. **LLM-guided graph augmentation.** For each benign anchor, structurally similar attack subgraphs are retrieved via the Weisfeiler–Leman subtree kernel, an LLM-guided edge mutation decides which boundary edges between the substituted attack region and the surrounding context to ADD / REMOVE / KEEP, and three semantic-mutation strategies rewrite the attack process node's command name + arguments to blend into the benign context. A unified verification step filters mutations that violate operation legality, attribute feasibility, imperceptibility, or hardness. → `src/augmentation/`.
 3. **Adaptive contrastive learning and node-level detection.** A 3-layer typed GIN with per-layer GRU temporal state is trained with a hard-sample-weighted supervised contrastive loss. A 2-layer MLP head consumes the per-node embedding produced by the encoder and emits a benign/malicious label for each node. → `src/detection/`.
-4. **Technique mapping and tactic-level alignment.** Each node flagged as malicious is mapped to a parent-level MITRE ATT&CK technique via Sentence-BERT similarity over the technique knowledge base; the techniques inside the same snapshot are aggregated and reduced to the corresponding tactic sequence, which is then aligned against the multi-stage tactic-sequence library using LCS. → `src/interpretation/`.
+4. **Technique mapping and tactic-level alignment.** Each detector-flagged node is mapped to a parent-level MITRE ATT&CK technique via Sentence-BERT similarity over the technique knowledge base; the techniques inside the same snapshot are aggregated and reduced to the corresponding tactic sequence, which is then aligned against the multi-stage tactic-sequence library using an LCS-F1 score that penalizes both missing and extra stages. → `src/interpretation/`.
 
 ## Repository Layout
 
@@ -29,9 +29,9 @@ ATHENA has four stages:
 │   ├── interpretation/         # node → technique mapping → tactic sequence → LCS alignment
 │   └── utils/                  # config loader, timing helpers, LLM client
 └── scripts/
-    ├── run_augmentation.py
-    ├── run_detection.py        # per-node binary detection
-    └── run_interpretation.py   # tactic-sequence alignment
+    ├── run_augmentation.py     # writes admitted augmented graphs + manifest
+    ├── run_detection.py        # writes per-node binary predictions + metrics
+    └── run_interpretation.py   # consumes detector output for tactic-sequence alignment
 ```
 
 ## Installation
@@ -69,7 +69,7 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 ## ATT&CK Knowledge Base (supp G.2 v)
 
 - `data/attack_knowledge/mitre_attack/technique_triples_{raw,transformed}.json` — operation-level action triples for each ATT&CK technique, used by `src/interpretation/semantic_matching.py` as the retrieval corpus.
-- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — multi-stage attack-sequence library, used by `src/interpretation/global_alignment.py` for LCS alignment.
+- `data/attack_knowledge/attackseqbench/technique_sequences.txt` — released multi-stage attack-sequence sample library, used by `src/interpretation/global_alignment.py` for LCS-F1 alignment. Replace or extend this file with the full benchmark library before reproducing paper-scale Top-K sequence experiments.
 
 ## Prompt Registry (supp G.2 ii)
 
@@ -85,14 +85,16 @@ The four prompt templates in `prompts/` are loaded by the augmentation pipeline:
 ## Running the Pipeline
 
 ```bash
-# Augmentation (paper §IV.B + §IV.C)
+# Augmentation (paper §IV.B + §IV.C): writes outputs/augmented_graphs/
 python scripts/run_augmentation.py   --config configs/athena.yaml --dataset cadets
 
-# Detection (paper §IV.A + §IV.D)
-python scripts/run_detection.py      --config configs/athena.yaml --dataset cadets
+# Detection (paper §IV.A + §IV.D): writes outputs/detection_predictions.json
+python scripts/run_detection.py      --config configs/athena.yaml --dataset cadets \
+  --output outputs/detection_predictions.json
 
-# Interpretation (paper §IV.E)
-python scripts/run_interpretation.py --config configs/athena.yaml --dataset cadets
+# Interpretation (paper §IV.E): consumes detector positives, not ground truth
+python scripts/run_interpretation.py --config configs/athena.yaml --dataset cadets \
+  --detections outputs/detection_predictions.json
 ```
 
 Supported `--dataset` values: `cadets, theia, trace, clearscope` (DARPA E3); `cadets5, theia5` (DARPA E5); `optcday1` (OpTC day 1); `atlas` (ATLAS).
@@ -117,19 +119,20 @@ Defaults in `configs/athena.yaml` reproduce the values used in the paper:
 | Symbol | Meaning | Default | Section |
 |---|---|---|---|
 | T | snapshot window | 1 min | snapshot |
-| r | r-hop neighbourhood radius | 2 | gin |
+| r | r-hop neighbourhood radius | 4 | gin |
 | L | GIN layers | 3 | gin |
-| D | embedding dimension | 128 | gin |
+| D | embedding dimension | 64 | gin |
 | top_k | WL retrieval candidates | 5 | augmentation |
 | top_m | accepted mutations per anchor | 3 | augmentation |
 | δ_h | WL similarity range (hardness check) | [0.30, 0.95] | augmentation |
-| γ | mapping confidence cutoff | 0.40 | interpretation |
-| LCS ratio | sequence-alignment cutoff | 0.60 | interpretation |
+| γ | mapping confidence cutoff | 0.50 | interpretation |
+| LCS-F1 | sequence-alignment cutoff | 0.60 | interpretation |
 
 ## Reproducibility Notes
 
 - Seeds are set in `src/utils/seed.py` (call before training).
 - LLM stochasticity is bounded by `temperature` in `configs/athena.yaml::llm`; runs against hosted LLMs are not bit-exact reproducible.
+- `scripts/run_interpretation.py --use-ground-truth` is provided only for annotation/debug checks. The default paper pipeline requires `--detections` from `scripts/run_detection.py`.
 
 ## Citation
 
