@@ -4,6 +4,7 @@ ig = pytest.importorskip("igraph")
 
 from scripts.run_detection import build_split
 from scripts.run_interpretation import _mark_detected
+from src.augmentation.edge_mutation import propose_candidate_new_edges
 from src.augmentation.structural_mutation import subgraph_replacement
 from src.augmentation.verifier import verify_mutation
 from src.augmentation.verifier import (
@@ -154,6 +155,24 @@ def test_verifier_uses_entity_level_ops_and_per_attribute_values():
     mutated.vs[0]["name"] = "proc-a"
     mutated.vs[0]["path"] = "/tmp/not-observed"
     assert check_attribute_feasibility(mutated, {0}, type_attrs) is False
+
+    mutated.vs[0]["path"] = "/bin/ls"
+    mutated.vs[0]["_athena_replaced_region"] = True
+    assert check_attribute_feasibility(mutated, {0}, type_attrs) is True
+
+
+def test_edge_mutation_add_candidates_cover_both_boundary_directions():
+    g = ig.Graph(directed=True)
+    g.add_vertices(2)
+    g.vs[0]["type"] = "process"
+    g.vs[0]["properties"] = "attack"
+    g.vs[1]["type"] = "file"
+    g.vs[1]["properties"] = "context"
+
+    candidates = propose_candidate_new_edges(g, {0}, max_candidates=4)
+
+    assert (0, 1, "connect") in candidates
+    assert (1, 0, "connect") in candidates
 
 
 def test_detection_split_uses_benign_days_and_held_out_attack_days():

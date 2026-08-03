@@ -4,7 +4,7 @@ Each mutated graph G~ must pass four checks before it is admitted as a hard
 negative for contrastive learning:
 
 1. Operation legality - every edge whose endpoint sits in the replaced
-   region must use an action that was observed for that source-entity type in
+   region must use an action that was observed for that source entity in
    the historical benign graphs.
 2. Attribute feasibility - every replaced node's attributes must lie in
    the observed attribute vocabulary for its node type.
@@ -49,6 +49,10 @@ def _entity_key(attrs: dict) -> str:
     return f"type:{_norm(attrs.get('type', ''))}"
 
 
+def _is_internal_attr(attr_name: str) -> bool:
+    return str(attr_name).startswith("_athena_")
+
+
 def build_historical_profiles(benign_graphs: list) -> Tuple[
     Dict[str, Set[str]],
     Dict[str, Dict[str, Set[str]]],
@@ -75,7 +79,7 @@ def build_historical_profiles(benign_graphs: list) -> Tuple[
             attrs = g.vs[v_idx].attributes()
             vtype = _norm(attrs.get("type", ""))
             for attr_name, attr_val in attrs.items():
-                if attr_name in {"label"} or attr_val in (None, ""):
+                if attr_name in {"label"} or _is_internal_attr(attr_name) or attr_val in (None, ""):
                     continue
                 type_attrs[vtype][attr_name].add(_norm(attr_val))
 
@@ -125,7 +129,7 @@ def check_attribute_feasibility(
             return False
         checked = 0
         for attr_name, attr_val in attrs.items():
-            if attr_name in {"label"} or attr_val in (None, ""):
+            if attr_name in {"label"} or _is_internal_attr(attr_name) or attr_val in (None, ""):
                 continue
             observed_values = observed_by_attr.get(attr_name)
             checked += 1

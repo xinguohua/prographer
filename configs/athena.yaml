@@ -21,7 +21,7 @@ paths:
 snapshot:
   malicious_window_minutes: 10   # T_mal — labelled window around each malicious event
   test_window_minutes:      20   # T_test — eval split window
-  snapshot_size:            500  # SNAPSHOT_SIZE — nodes per 1-min snapshot
+  snapshot_size:            500  # legacy fallback only; normal construction uses 1-min windows
   forgetting_rate:          0.2  # rate at which old nodes are evicted
 
 # Snapshot sequence assembly (Paper §IV.A → §IV.D input).

@@ -82,11 +82,12 @@ def propose_candidate_new_edges(
     candidates: List[Tuple[int, int, str]] = []
     for v_s in sorted(replaced_nodes):
         for v_c in context_nodes:
-            if (v_s, v_c) in existing or (v_c, v_s) in existing:
-                continue
-            candidates.append((v_s, v_c, "connect"))
-            if len(candidates) >= max_candidates:
-                return candidates
+            for src, dst in ((v_s, v_c), (v_c, v_s)):
+                if (src, dst) in existing:
+                    continue
+                candidates.append((src, dst, "connect"))
+                if len(candidates) >= max_candidates:
+                    return candidates
     return candidates
 
 

@@ -533,7 +533,12 @@ class GCCEmbedderDev(GraphEmbedderBase):
 
         # Loss + backward
         self.optimizer.zero_grad(set_to_none=True)
-        loss = self._weighted_contrastive_loss(Z_pos, Z_neg, temperature=self.temperature)
+        loss = self._weighted_contrastive_loss(
+            Z_pos,
+            Z_neg,
+            temperature=self.temperature,
+            beta=self.anomaly_alpha,
+        )
         loss.backward()
         clip_params = list(self.encoder.parameters()) + list(self.proj_head.parameters())
         if self.use_temporal:
@@ -759,6 +764,7 @@ class GCCEmbedderDev(GraphEmbedderBase):
             loss = self._weighted_contrastive_loss(
                 Z_pos, Z_neg,
                 temperature=self.temperature,
+                beta=self.anomaly_alpha,
             )
 
             loss.backward()

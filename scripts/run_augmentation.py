@@ -29,6 +29,7 @@ from src.augmentation.structural_mutation import aligned_region_search, subgraph
 from src.augmentation.edge_mutation import apply_edge_mutation_llm
 from src.augmentation.semantic_mutation import (
     apply_semantic_mutation_llm,
+    generate_strategy_variants,
     _collect_benign_corpus,
 )
 from src.augmentation.verifier import verify_mutation, build_historical_profiles
@@ -211,6 +212,16 @@ def main(argv=None):
                         llm_fn=llm_fn,
                         model_name=model_name,
                     )
+                    strategy_variants = generate_strategy_variants(
+                        g_mut,
+                        attack_node_indices=list(replaced),
+                        benign_commands=benign_commands,
+                        benign_args=benign_args_set,
+                        llm_fn=llm_fn,
+                        model_name=model_name,
+                    )
+                    if strategy_variants:
+                        g_mut["strategy_variants"] = strategy_variants
                     passed, failed = verify_mutation(
                         g_mut, g_anchor, replaced, entity_ops, type_attrs,
                         delta_h=delta_h_lower, delta_h_upper=delta_h_upper,
@@ -229,6 +240,7 @@ def main(argv=None):
                             "retrieval_similarity": float(sim),
                             "region_score": float(score),
                             "replaced_nodes": sorted(int(x) for x in replaced),
+                            "strategy_variant_nodes": sorted(int(x) for x in strategy_variants),
                             "attempt": int(attempt),
                         })
                         accepted = True
