@@ -30,7 +30,7 @@ ATHENA has four stages:
 │   └── utils/                  # config loader, timing helpers, LLM client
 └── scripts/
     ├── run_augmentation.py     # writes admitted augmented graphs + manifest
-    ├── run_detection.py        # writes per-node binary predictions + metrics
+    ├── run_detection.py        # writes held-out per-node predictions + metrics
     └── run_interpretation.py   # consumes detector output for tactic-sequence alignment
 ```
 
@@ -88,7 +88,7 @@ The four prompt templates in `prompts/` are loaded by the augmentation pipeline:
 # Augmentation (paper §IV.B + §IV.C): writes outputs/augmented_graphs/
 python scripts/run_augmentation.py   --config configs/athena.yaml --dataset cadets
 
-# Detection (paper §IV.A + §IV.D): writes outputs/detection_predictions.json
+# Detection (paper §IV.A + §IV.D): writes held-out predictions and metrics
 python scripts/run_detection.py      --config configs/athena.yaml --dataset cadets \
   --output outputs/detection_predictions.json
 
@@ -99,7 +99,7 @@ python scripts/run_interpretation.py --config configs/athena.yaml --dataset cade
 
 Supported `--dataset` values: `cadets, theia, trace, clearscope` (DARPA E3); `cadets5, theia5` (DARPA E5); `optcday1` (OpTC day 1); `atlas` (ATLAS).
 
-Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--epochs N` and `--max-snapshots N` to constrain runs.
+Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's chronological protocol by default: snapshots are kept in construction order, each benign/attack block is split by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out test snapshots. `train_metrics` and the exact snapshot split are included for auditability.
 
 ## Configuration
 
@@ -126,6 +126,7 @@ Defaults in `configs/athena.yaml` match the artifact configuration used by the r
 | top_m | accepted mutations per anchor | 3 | augmentation |
 | δ_h | WL similarity range (hardness check) | [0.30, 0.95] | augmentation |
 | γ | mapping confidence cutoff | 0.50 | interpretation |
+| train ratio | chronological detector training split | 0.70 | detection |
 | T_max | tactic queue retention window | 7 days | interpretation |
 | LCS/min | sequence-alignment cutoff | 0.60 | interpretation |
 

@@ -15,6 +15,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import torch
@@ -65,8 +66,8 @@ def prepare_data(path_map, dataset, scene):
 
 
 @measure_func("train_encoder", realtime=True, interval=1.0)
-def train_encoder(handler, use_temporal: bool = False):
-    encoder = ATHENAEncoder(handler.snapshots)
+def train_encoder(handler, train_snapshot_ids: Iterable[int], use_temporal: bool = False):
+    encoder = ATHENAEncoder(handler.snapshots, train_indices=sorted(set(train_snapshot_ids)))
     encoder.train()
     encoder.generate_node_embeddings(use_temporal=use_temporal)
     return encoder
@@ -90,13 +91,86 @@ def _binary_metrics(y_true, y_pred):
     }
 
 
+def _snapshot_range(start, end):
+    if start is None or end is None:
+        return []
+    start = int(start)
+    end = int(end)
+    if start < 0 or end < start:
+        return []
+    return list(range(start, end + 1))
+
+
+def _chronological_split(snapshot_ids, train_ratio: float):
+    snapshot_ids = list(snapshot_ids)
+    if not snapshot_ids:
+        return [], []
+    if len(snapshot_ids) == 1:
+        return snapshot_ids, []
+    cut = int(round(len(snapshot_ids) * float(train_ratio)))
+    cut = max(1, min(cut, len(snapshot_ids) - 1))
+    return snapshot_ids[:cut], snapshot_ids[cut:]
+
+
+def build_split(handler, train_ratio: float):
+    """Return paper-style chronological train/test snapshot partitions.
+
+    The public artifact stores snapshots in their construction order. For each
+    benign and attack block, the earliest windows are used for training and the
+    remaining windows are held out for detector metrics.
+    """
+    benign_ids = _snapshot_range(
+        getattr(handler, "benign_idx_start", None),
+        getattr(handler, "benign_idx_end", None),
+    )
+    malicious_ids = _snapshot_range(
+        getattr(handler, "malicious_idx_start", None),
+        getattr(handler, "malicious_idx_end", None),
+    )
+    all_ids = list(range(len(getattr(handler, "snapshots", []))))
+    covered = set(benign_ids) | set(malicious_ids)
+    unlabeled_ids = [sid for sid in all_ids if sid not in covered]
+
+    ben_train, ben_test = _chronological_split(benign_ids, train_ratio)
+    mal_train, mal_test = _chronological_split(malicious_ids, train_ratio)
+    unl_train, unl_test = _chronological_split(unlabeled_ids, train_ratio)
+
+    train_ids = sorted(set(ben_train + mal_train + unl_train))
+    test_ids = sorted(set(ben_test + mal_test + unl_test))
+    if not test_ids:
+        test_ids = train_ids[:]
+
+    return train_ids, test_ids, {
+        "mode": "chronological_by_snapshot_order",
+        "train_ratio": float(train_ratio),
+        "train_snapshots": train_ids,
+        "test_snapshots": test_ids,
+        "blocks": {
+            "benign": {"train": ben_train, "test": ben_test},
+            "malicious": {"train": mal_train, "test": mal_test},
+            "unlabeled": {"train": unl_train, "test": unl_test},
+        },
+    }
+
+
 def main(argv=None):
     args = parse_args(argv)
     cfg = load_config(Path(args.config))
     path_map = cfg.get("paths", {})
+    det_cfg = cfg.get("detection", {})
+    split_mode = str(det_cfg.get("split_mode", "chronological_by_snapshot_order"))
+    if split_mode != "chronological_by_snapshot_order":
+        raise ValueError(f"unsupported detection.split_mode: {split_mode}")
 
     handler = prepare_data(path_map, args.dataset, args.scene)
-    encoder = train_encoder(handler, use_temporal=args.use_temporal)
+    train_ratio = float(det_cfg.get("train_ratio", 0.70))
+    train_snapshot_ids, test_snapshot_ids, split_meta = build_split(handler, train_ratio)
+    print(
+        f"[node-detection] split={split_meta['mode']} train_snapshots={len(train_snapshot_ids)} "
+        f"test_snapshots={len(test_snapshot_ids)} train_ratio={train_ratio:.2f}"
+    )
+
+    encoder = train_encoder(handler, train_snapshot_ids, use_temporal=args.use_temporal)
 
     malicious_uuids = load_malicious_uuids(args.dataset, args.scene or "")
     X, y, uuids, sids = flatten_node_embeddings(
@@ -116,18 +190,27 @@ def main(argv=None):
         print("[node-detection] no node embeddings generated; aborting")
         return
 
-    epochs = args.epochs or int(cfg.get("detection", {}).get("epochs", 50))
-    mlp_hidden = int(cfg.get("detection", {}).get("mlp_hidden", 256))
-    benign_mask = y == 0
+    epochs = args.epochs or int(det_cfg.get("epochs", 50))
+    mlp_hidden = int(det_cfg.get("mlp_hidden", 256))
+    train_snapshot_set = set(train_snapshot_ids)
+    test_snapshot_set = set(test_snapshot_ids)
+    train_mask = np.asarray([int(sid) in train_snapshot_set for sid in sids], dtype=bool)
+    test_mask = np.asarray([int(sid) in test_snapshot_set for sid in sids], dtype=bool)
+    if not bool(train_mask.any()):
+        raise RuntimeError("no training nodes after chronological split")
+    if not bool(test_mask.any()):
+        test_mask = train_mask.copy()
+    benign_train_mask = train_mask & (y == 0)
+    malicious_train_mask = train_mask & (y == 1)
     detector = ATHENADetector(hidden_dim=mlp_hidden, num_epochs=epochs)
-    if n_mal > 0:
+    if int(malicious_train_mask.sum()) > 0:
         detector.train(
-            benign_embeddings=X[benign_mask],
-            malicious_embeddings=X[~benign_mask],
-            malicious_labels=y[~benign_mask],
+            benign_embeddings=X[benign_train_mask],
+            malicious_embeddings=X[malicious_train_mask],
+            malicious_labels=y[malicious_train_mask],
         )
     else:
-        detector.train(benign_embeddings=X[benign_mask])
+        detector.train(benign_embeddings=X[benign_train_mask])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(
@@ -136,9 +219,10 @@ def main(argv=None):
     )
 
     pred_labels, details = detector.predict(X)
-    metrics = _binary_metrics(y, pred_labels)
+    metrics = _binary_metrics(y[test_mask], pred_labels[test_mask])
+    train_metrics = _binary_metrics(y[train_mask], pred_labels[train_mask])
     print(
-        "[node-detection] metrics "
+        "[node-detection] test_metrics "
         f"acc={metrics['accuracy']:.4f} precision={metrics['precision']:.4f} "
         f"recall={metrics['recall']:.4f} f1={metrics['f1']:.4f} fpr={metrics['fpr']:.4f}"
     )
@@ -151,6 +235,7 @@ def main(argv=None):
             "uuid": str(uuid),
             "true_label": int(true_label),
             "pred_label": int(pred_label),
+            "split": "test" if int(sid) in test_snapshot_set else "train",
         }
         if pos in details:
             row["prob_malicious"] = float(details[pos].get("prob_malicious", 0.0))
@@ -165,10 +250,14 @@ def main(argv=None):
         "scene": args.scene,
         "use_temporal": bool(args.use_temporal),
         "metrics": metrics,
+        "train_metrics": train_metrics,
+        "split": split_meta,
         "counts": {
             "nodes": n_total,
             "benign": n_ben,
             "malicious": n_mal,
+            "train_nodes": int(train_mask.sum()),
+            "test_nodes": int(test_mask.sum()),
             "labels_loaded": len(malicious_uuids),
         },
         "predictions": predictions,

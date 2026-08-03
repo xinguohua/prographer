@@ -54,6 +54,8 @@ detection:
   threshold:       0.01 # DETECTION_THRESHOLD — anomaly score cutoff
   mlp_hidden:      256
   epochs:          50
+  split_mode:      chronological_by_snapshot_order
+  train_ratio:     0.70
 
 # Global attack interpretation (Paper §IV.E; Supp G.2 v).
 interpretation:
