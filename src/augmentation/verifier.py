@@ -20,7 +20,6 @@ A mutation is *admitted* iff all four checks pass.
 from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
-import re
 
 try:
     import igraph as ig  # noqa: F401
@@ -38,44 +37,49 @@ PERCEIVABLE_BLACKLIST = {
 }
 
 
-def _tokens(text: str) -> Set[str]:
-    return {
-        t.lower()
-        for t in re.findall(r"[A-Za-z0-9_./:-]+", str(text))
-        if len(t) > 1
-    }
+def _norm(value) -> str:
+    return str(value).strip().lower()
+
+
+def _entity_key(attrs: dict) -> str:
+    for key in ("uuid", "name", "properties", "cmdline", "path"):
+        value = attrs.get(key)
+        if value not in (None, ""):
+            return f"{key}:{_norm(value)}"
+    return f"type:{_norm(attrs.get('type', ''))}"
 
 
 def build_historical_profiles(benign_graphs: list) -> Tuple[
     Dict[str, Set[str]],
-    Dict[str, Set[str]],
+    Dict[str, Dict[str, Set[str]]],
 ]:
     """Scan the benign-training graphs to produce two lookup tables:
 
-    - ``entity_ops``  : source node-type string -> set of actions observed,
-    - ``type_attrs``  : node-type string        -> set of observed tokens.
+    - ``entity_ops``  : source entity signature -> set of actions observed,
+    - ``type_attrs``  : node type -> attribute name -> observed values.
 
     These tables feed the operation-legality and attribute-feasibility
     checks below.
     """
-    from .semantic_mutation import _get_properties
-
     entity_ops: Dict[str, Set[str]] = defaultdict(set)
-    type_attrs: Dict[str, Set[str]] = defaultdict(set)
+    type_attrs: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
 
     for g, _ in benign_graphs:
         for e_idx in range(g.ecount()):
             e = g.es[e_idx]
-            src_prop = str(g.vs[e.source].attributes().get("type", "")).lower()
+            src_attrs = g.vs[e.source].attributes()
             action = str(e.attributes().get("actions", ""))
-            entity_ops[src_prop].add(action)
+            entity_ops[_entity_key(src_attrs)].add(action)
 
         for v_idx in range(g.vcount()):
-            vtype = str(g. vs [v_idx].attributes().get("type", "")).lower()
-            vprop = _get_properties(g, v_idx)
-            type_attrs[vtype].update(_tokens(vprop))
+            attrs = g.vs[v_idx].attributes()
+            vtype = _norm(attrs.get("type", ""))
+            for attr_name, attr_val in attrs.items():
+                if attr_name in {"label"} or attr_val in (None, ""):
+                    continue
+                type_attrs[vtype][attr_name].add(_norm(attr_val))
 
-    return dict(entity_ops), dict(type_attrs)
+    return dict(entity_ops), {k: dict(v) for k, v in type_attrs.items()}
 
 
 def check_operation_legality(
@@ -85,7 +89,7 @@ def check_operation_legality(
 ) -> bool:
     """Check 1 (paper §IV.C). Returns ``True`` when every
     boundary-touching edge uses an action that was previously observed for
-    its source type in ``entity_ops``."""
+    its concrete source entity in ``entity_ops``."""
 
     if not entity_ops:
         return True
@@ -94,8 +98,8 @@ def check_operation_legality(
         if e.source not in replaced_nodes and e.target not in replaced_nodes:
             continue
         action = str(e.attributes().get("actions", ""))
-        src_type = str(g_mut.vs[e.source].attributes().get("type", "")).lower()
-        observed = entity_ops.get(src_type)
+        src_key = _entity_key(g_mut.vs[e.source].attributes())
+        observed = entity_ops.get(src_key)
         if observed is None or action not in observed:
             return False
     return True
@@ -104,23 +108,30 @@ def check_operation_legality(
 def check_attribute_feasibility(
     g_mut,
     replaced_nodes: Set[int],
-    type_attrs: Dict[str, Set[str]],
+    type_attrs: Dict[str, Dict[str, Set[str]]],
 ) -> bool:
     """Check 2 (paper §IV.C). Returns ``True`` when every
-    replaced node's attribute tokens are compatible with that node type in
-    ``type_attrs``."""
-    from .semantic_mutation import _get_properties
+    replaced node's checked attributes are compatible with that node type in
+    ``type_attrs``. Each attribute is checked under its own name; a match in an
+    unrelated attribute no longer admits the mutation."""
 
     if not type_attrs:
         return True
     for v_idx in replaced_nodes:
-        vtype = str(g_mut. vs [v_idx].attributes().get("type", "")).lower()
-        vprop = _get_properties(g_mut, v_idx)
-        observed = type_attrs.get(vtype)
-        current = _tokens(vprop)
-        if observed is None or not current:
+        attrs = g_mut.vs[v_idx].attributes()
+        vtype = _norm(attrs.get("type", ""))
+        observed_by_attr = type_attrs.get(vtype)
+        if observed_by_attr is None:
             return False
-        if not (current & observed):
+        checked = 0
+        for attr_name, attr_val in attrs.items():
+            if attr_name in {"label"} or attr_val in (None, ""):
+                continue
+            observed_values = observed_by_attr.get(attr_name)
+            checked += 1
+            if observed_values is None or _norm(attr_val) not in observed_values:
+                return False
+        if checked == 0:
             return False
     return True
 
@@ -153,7 +164,7 @@ def verify_mutation(
     g_anchor,
     replaced_nodes: Set[int],
     entity_ops: Dict[str, Set[str]],
-    type_attrs: Dict[str, Set[str]],
+    type_attrs: Dict[str, Dict[str, Set[str]]],
     delta_h: float = 0.3,
     delta_h_upper: float = 0.95,
 ) -> Tuple[bool, List[str]]:

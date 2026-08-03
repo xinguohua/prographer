@@ -119,7 +119,7 @@ python scripts/compute_rating_agreement.py --ratings data/human_ratings.csv
 
 Supported `--dataset` values: `cadets, theia, trace, clearscope` (DARPA E3); `cadets5, theia5, trace5, clearscope5` (DARPA E5); `optcday1` (OpTC day 1); `atlas` (ATLAS). The released label directory contains the scene files used by the artifact tables; additional local scenes can be evaluated by adding matching malicious-entity and ATT&CK label files under `data/annotated_labels/`.
 
-Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--model <key>` on augmentation to select one of the LLM configurations; `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's chronological protocol by default: snapshots are kept in construction order, each benign/attack block is split by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out test snapshots. If `outputs/augmented_graphs/manifest.json` exists, admitted augmented graphs are loaded as contrastive hard negatives through the encoder's mutation map; the output JSON records the augmentation manifest, loaded graph count, encoder configuration, train metrics, and exact snapshot split. The interpretation script consumes held-out detector positives by default; `--include-train-detections` is available only for artifact debugging.
+Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--model <key>` on augmentation to select one of the LLM configurations; `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's date-partition protocol by default: benign days are assigned to training, attack days are split chronologically by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out attack-day snapshots. If a dataset has no attack-day labels, the script falls back to a chronological split and records the exact split in the output JSON. If `outputs/augmented_graphs/manifest.json` exists, admitted augmented graphs are loaded as contrastive hard negatives through the encoder's mutation map; the output JSON records the augmentation manifest, loaded graph count, encoder configuration, train metrics, and exact snapshot split. The interpretation script consumes held-out detector positives by default; `--include-train-detections` is available only for artifact debugging.
 
 ## Configuration
 
@@ -148,7 +148,7 @@ Defaults in `configs/athena.yaml` match the artifact configuration used by the r
 | δ_h | WL similarity range (hardness check) | [0.30, 0.95] | augmentation |
 | γ | mapping confidence cutoff | 0.50 | interpretation |
 | temporal | GRU temporal encoder | enabled | detection |
-| train ratio | chronological detector training split | 0.70 | detection |
+| train ratio | attack-day detector training split | 0.70 | detection |
 | T_max | tactic queue retention window | 7 days | interpretation |
 | LCS/min | sequence-alignment cutoff | 0.60 | interpretation |
 

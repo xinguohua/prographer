@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import pickle
 import sys
@@ -181,16 +182,77 @@ def _snapshot_time_key(handler, sid: int) -> tuple:
     return (0, min(values), sid)
 
 
+def _snapshot_day_key(handler, sid: int):
+    time_key = _snapshot_time_key(handler, sid)
+    if time_key[0] != 0:
+        return ("unknown", sid)
+    ts = float(time_key[1])
+    if ts > 1e18:
+        ts /= 1e9
+    elif ts > 1e15:
+        ts /= 1e6
+    elif ts > 1e12:
+        ts /= 1e3
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+    except Exception:
+        return ("unknown", sid)
+
+
+def _snapshot_has_attack(handler, sid: int) -> bool:
+    snapshots = getattr(handler, "snapshots", [])
+    if sid < 0 or sid >= len(snapshots):
+        return False
+    g = snapshots[sid]
+    try:
+        if g is not None and g.vcount() > 0 and "label" in g.vs.attributes():
+            return any(int(v or 0) == 1 for v in g.vs["label"])
+    except Exception:
+        return False
+    return False
+
+
 def build_split(handler, train_ratio: float):
     all_ids = list(range(len(getattr(handler, "snapshots", []))))
     ordered_ids = sorted(all_ids, key=lambda sid: _snapshot_time_key(handler, sid))
-    train_ids, test_ids = _chronological_split(ordered_ids, train_ratio)
+    day_to_ids: dict[object, list[int]] = {}
+    for sid in ordered_ids:
+        day_to_ids.setdefault(_snapshot_day_key(handler, sid), []).append(sid)
+
+    benign_days = []
+    attack_days = []
+    for day, ids in day_to_ids.items():
+        if any(_snapshot_has_attack(handler, sid) for sid in ids):
+            attack_days.append(day)
+        else:
+            benign_days.append(day)
+
+    benign_days = sorted(benign_days, key=str)
+    attack_days = sorted(attack_days, key=str)
+    train_ids = [sid for day in benign_days for sid in day_to_ids[day]]
+
+    attack_train_days, attack_test_days = _chronological_split(attack_days, train_ratio)
+    if attack_test_days:
+        train_ids.extend(sid for day in attack_train_days for sid in day_to_ids[day])
+        test_ids = [sid for day in attack_test_days for sid in day_to_ids[day]]
+    elif attack_train_days:
+        attack_ids = [sid for day in attack_train_days for sid in day_to_ids[day]]
+        attack_train_ids, test_ids = _chronological_split(attack_ids, train_ratio)
+        train_ids.extend(attack_train_ids)
+    else:
+        train_ids, test_ids = _chronological_split(ordered_ids, train_ratio)
+
+    train_ids = sorted(set(train_ids), key=lambda sid: _snapshot_time_key(handler, sid))
+    test_ids = sorted(set(test_ids), key=lambda sid: _snapshot_time_key(handler, sid))
     if not test_ids:
         test_ids = train_ids[:]
 
     return train_ids, test_ids, {
-        "mode": "chronological_by_snapshot_timestamp",
+        "mode": "date_partition_benign_days_and_attack_days",
         "train_ratio": float(train_ratio),
+        "benign_train_days": benign_days,
+        "attack_train_days": attack_train_days if attack_days else [],
+        "attack_test_days": attack_test_days if attack_days else [],
         "train_snapshots": train_ids,
         "test_snapshots": test_ids,
         "ordered_snapshots": ordered_ids,
@@ -247,8 +309,8 @@ def main(argv=None):
     cfg = load_config(Path(args.config))
     path_map = cfg.get("paths", {})
     det_cfg = cfg.get("detection", {})
-    split_mode = str(det_cfg.get("split_mode", "chronological_by_snapshot_timestamp"))
-    if split_mode != "chronological_by_snapshot_timestamp":
+    split_mode = str(det_cfg.get("split_mode", "date_partition_benign_days_and_attack_days"))
+    if split_mode not in {"date_partition_benign_days_and_attack_days", "chronological_by_snapshot_timestamp"}:
         raise ValueError(f"unsupported detection.split_mode: {split_mode}")
 
     handler = prepare_data(path_map, args.dataset, args.scene)

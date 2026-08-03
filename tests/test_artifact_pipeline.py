@@ -1,9 +1,16 @@
 import pytest
 
-pytest.importorskip("igraph")
+ig = pytest.importorskip("igraph")
 
+from scripts.run_detection import build_split
 from scripts.run_interpretation import _mark_detected
+from src.augmentation.structural_mutation import subgraph_replacement
 from src.augmentation.verifier import verify_mutation
+from src.augmentation.verifier import (
+    build_historical_profiles,
+    check_attribute_feasibility,
+    check_operation_legality,
+)
 from src.detection.contrastive_learning import GCCEmbedderDev
 
 
@@ -81,3 +88,88 @@ def test_verifier_rejects_any_failed_check(monkeypatch):
 
     assert passed is False
     assert failed == ["operation_legality"]
+
+
+def test_subgraph_replacement_inserts_unmatched_attack_nodes_and_redirects_boundary():
+    g_b = ig.Graph(directed=True)
+    g_b.add_vertices(3)
+    g_b.vs[0]["name"] = "ctx"
+    g_b.vs[0]["type"] = "process"
+    g_b.vs[1]["name"] = "benign"
+    g_b.vs[1]["type"] = "process"
+    g_b.vs[2]["name"] = "outside"
+    g_b.vs[2]["type"] = "file"
+    g_b.add_edge(0, 1, actions="read")
+    g_b.add_edge(1, 2, actions="write")
+
+    g_a = ig.Graph(directed=True)
+    g_a.add_vertices(2)
+    g_a.vs[0]["name"] = "attack-proc"
+    g_a.vs[0]["type"] = "process"
+    g_a.vs[1]["name"] = "attack-file"
+    g_a.vs[1]["type"] = "file"
+    g_a.add_edge(0, 1, actions="execute")
+
+    g_mut = subgraph_replacement(g_b, g_a, S_b_nodes=[1], S_a_nodes=[0, 1], pi={0: 1})
+
+    assert g_mut is not None
+    assert "benign" not in set(g_mut.vs["name"])
+    assert {"attack-proc", "attack-file", "ctx", "outside"} == set(g_mut.vs["name"])
+    edges = {(g_mut.vs[e.source]["name"], g_mut.vs[e.target]["name"], e["actions"]) for e in g_mut.es}
+    assert ("ctx", "attack-proc", "read") in edges
+    assert ("attack-proc", "outside", "write") in edges
+    assert ("attack-proc", "attack-file", "execute") in edges
+
+
+def test_verifier_uses_entity_level_ops_and_per_attribute_values():
+    benign = ig.Graph(directed=True)
+    benign.add_vertices(2)
+    benign.vs[0]["name"] = "proc-a"
+    benign.vs[0]["type"] = "process"
+    benign.vs[0]["path"] = "/bin/ls"
+    benign.vs[1]["name"] = "file-a"
+    benign.vs[1]["type"] = "file"
+    benign.vs[1]["path"] = "/var/log/auth.log"
+    benign.add_edge(0, 1, actions="read")
+    entity_ops, type_attrs = build_historical_profiles([(benign, None)])
+
+    mutated = ig.Graph(directed=True)
+    mutated.add_vertices(2)
+    mutated.vs[0]["name"] = "proc-b"
+    mutated.vs[0]["type"] = "process"
+    mutated.vs[0]["path"] = "/bin/ls"
+    mutated.vs[1]["name"] = "file-a"
+    mutated.vs[1]["type"] = "file"
+    mutated.vs[1]["path"] = "/var/log/auth.log"
+    mutated.add_edge(0, 1, actions="read")
+
+    assert check_operation_legality(mutated, {0}, entity_ops) is False
+
+    mutated.vs[0]["name"] = "proc-a"
+    mutated.vs[0]["path"] = "/tmp/not-observed"
+    assert check_attribute_feasibility(mutated, {0}, type_attrs) is False
+
+
+def test_detection_split_uses_benign_days_and_held_out_attack_days():
+    class Handler:
+        pass
+
+    handler = Handler()
+    handler.snapshots = []
+    for ts, label in [
+        (1704067200, 0),  # benign day 1
+        (1704153600, 0),  # benign day 2
+        (1704240000, 1),  # attack day 1
+        (1704326400, 1),  # attack day 2
+    ]:
+        g = ig.Graph(directed=True)
+        g.add_vertices(1)
+        g.vs[0]["timestamp"] = ts
+        g.vs[0]["label"] = label
+        handler.snapshots.append(g)
+
+    train_ids, test_ids, meta = build_split(handler, 0.5)
+
+    assert meta["mode"] == "date_partition_benign_days_and_attack_days"
+    assert train_ids == [0, 1, 2]
+    assert test_ids == [3]

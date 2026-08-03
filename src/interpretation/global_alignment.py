@@ -102,13 +102,10 @@ def best_library_match(
     predicted: List[str],
     library: List[List[str]],
     min_ratio: float = 0.60,
-    min_stages: int = 3,
 ) -> Tuple[Optional[List[str]], float]:
-    """Return the best full-chain library match."""
+    """Return the best library match under the paper's LCS/min criterion."""
     best_seq: Optional[List[str]] = None
     best_score: float = 0.0
-    if len(predicted) < min_stages:
-        return None, 0.0
     for ref in library:
         if not ref:
             continue

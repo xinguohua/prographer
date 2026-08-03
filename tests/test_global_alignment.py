@@ -19,12 +19,12 @@ def test_full_match_uses_paper_lcs_min_score():
     assert lcs_full_match_score(predicted, reference) == 1.0
 
 
-def test_single_tactic_does_not_match_full_chain():
+def test_single_tactic_uses_eq8_without_extra_stage_gate():
     reference = ["Initial Access", "Persistence", "Execution", "Exfiltration"]
     predicted = ["Execution"]
 
     assert lcs_min_ratio(predicted, reference) == 1.0
-    assert best_library_match(predicted, [reference], min_ratio=0.6) == (None, 0.0)
+    assert best_library_match(predicted, [reference], min_ratio=0.6) == (reference, 1.0)
 
 
 def test_lcs_min_ratio_partial_order_match():

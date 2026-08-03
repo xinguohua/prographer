@@ -183,52 +183,81 @@ def subgraph_replacement(
     pi: dict,
 ) -> Optional:
     """
-    subgraphreplace: will G_b in S 's attributeandedgereplaceis G_a in S' 's . 
-    preserve name(UUID) not, itsremainderattribute (type/properties/label/frequency) allreplace. 
+    Replace benign region S with attack region S'.
+
+    This performs the graph edit described in Algorithm 1: remove the benign
+    aligned region, insert the complete attack region including unmatched
+    attack nodes, copy S' internal edges, preserve benign context edges, and
+    redirect boundary edges through the alignment map.
     """
     if ig is None:
         return None
 
     try:
-        g_mut = g_b.copy()
         S_b_set = set(S_b_nodes)
-
-        # 1. replacenodeattribute
-        for w_idx, v_idx in pi.items():
-            if v_idx >= g_mut.vcount() or w_idx >= g_a.vcount():
-                continue
-            attack_attrs = g_a. vs [w_idx].attributes()
-            for attr_name, attr_val in attack_attrs.items():
-                if attr_name == "name":
-                    continue
-                try:
-                    g_mut. vs [v_idx][attr_name] = attr_val
-                except Exception:
-                    pass
-
-        # 2. replaceedge: delete S internaledge, add S' internaledge
-        s_internal_edges = []
-        for e_idx in range(g_mut.ecount()):
-            e = g_mut.es[e_idx]
-            if e.source in S_b_set and e.target in S_b_set:
-                s_internal_edges.append(e_idx)
-        if s_internal_edges:
-            g_mut.delete_edges(s_internal_edges)
-
         inv_pi = {v: w for w, v in pi.items()}
         S_a_set = set(S_a_nodes)
+
+        g_mut = ig.Graph(directed=g_b.is_directed())
+        benign_to_mut: Dict[int, int] = {}
+        attack_to_mut: Dict[int, int] = {}
+
+        def add_vertex(attrs: dict) -> int:
+            idx = g_mut.vcount()
+            g_mut.add_vertices(1)
+            for key, value in attrs.items():
+                g_mut.vs[idx][key] = value
+            return idx
+
+        def add_edge(src: int, dst: int, attrs: dict) -> None:
+            try:
+                g_mut.add_edge(src, dst, **attrs)
+            except Exception:
+                g_mut.add_edge(src, dst)
+                new_e = g_mut.es[g_mut.ecount() - 1]
+                for key, value in attrs.items():
+                    new_e[key] = value
+
+        for v_idx in range(g_b.vcount()):
+            if v_idx not in S_b_set:
+                benign_to_mut[v_idx] = add_vertex(dict(g_b.vs[v_idx].attributes()))
+
+        for w_idx in S_a_nodes:
+            attack_to_mut[w_idx] = add_vertex(dict(g_a.vs[w_idx].attributes()))
+
+        for e_idx in range(g_b.ecount()):
+            e = g_b.es[e_idx]
+            src_in = e.source in S_b_set
+            dst_in = e.target in S_b_set
+            if src_in and dst_in:
+                continue
+
+            if src_in:
+                mapped_src = inv_pi.get(e.source)
+                if mapped_src is None:
+                    continue
+                new_src = attack_to_mut.get(mapped_src)
+            else:
+                new_src = benign_to_mut.get(e.source)
+
+            if dst_in:
+                mapped_dst = inv_pi.get(e.target)
+                if mapped_dst is None:
+                    continue
+                new_dst = attack_to_mut.get(mapped_dst)
+            else:
+                new_dst = benign_to_mut.get(e.target)
+
+            if new_src is not None and new_dst is not None:
+                add_edge(new_src, new_dst, dict(e.attributes()))
 
         for e_idx in range(g_a.ecount()):
             e = g_a.es[e_idx]
             if e.source in S_a_set and e.target in S_a_set:
-                v_src = pi.get(e.source)
-                v_dst = pi.get(e.target)
-                if v_src is not None and v_dst is not None:
-                    edge_attrs = e.attributes()
-                    try:
-                        g_mut.add_edge(v_src, v_dst, **edge_attrs)
-                    except Exception:
-                        g_mut.add_edge(v_src, v_dst)
+                new_src = attack_to_mut.get(e.source)
+                new_dst = attack_to_mut.get(e.target)
+                if new_src is not None and new_dst is not None:
+                    add_edge(new_src, new_dst, dict(e.attributes()))
 
         return g_mut
 
