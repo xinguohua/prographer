@@ -1,6 +1,6 @@
 """Paper §IV.A - Provenance graph loader dispatch.
 
-Maps a dataset name (one of the eight keys in :data:`handler_map`) to the
+Maps a dataset name (one of the ten keys in :data:`handler_map`) to the
 right parser class and constructs it with the requested scene filter.
 """
 from typing import Optional
@@ -22,6 +22,8 @@ handler_map = {
     "trace": DARPAHandler,
     "cadets5": DARPAHandler5,
     "theia5": DARPAHandler5,
+    "trace5": DARPAHandler5,
+    "clearscope5": DARPAHandler5,
     "atlas": ATLASHandler,
     "optcday1": OptcHandler,
 }

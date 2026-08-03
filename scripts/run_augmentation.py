@@ -38,7 +38,7 @@ from src.utils.llm import chatanywhere_summarize
 
 SUPPORTED_DATASETS = (
     "cadets", "theia", "trace", "clearscope",
-    "cadets5", "theia5",
+    "cadets5", "theia5", "trace5", "clearscope5",
     "atlas", "optcday1",
 )
 
@@ -50,6 +50,8 @@ def parse_args(argv=None):
     p.add_argument("--scene", default=None)
     p.add_argument("--top-k", type=int, default=None,
                    help="override augmentation.top_k from the config")
+    p.add_argument("--model", default=None,
+                   help="LLM model key from configs/athena.yaml::llm.models")
     p.add_argument("--max-anchors", type=int, default=None,
                    help="cap on benign anchors processed (smoke testing)")
     p.add_argument("--no-llm", action="store_true",
@@ -65,7 +67,7 @@ def _mock_llm_fn(_prompt: str) -> str:
     return "[]"
 
 
-def _build_llm_fn(model_name: str):
+def _build_llm_fn(model_name: str, model_cfg: dict):
     """Return a ``llm_fn(prompt) -> str`` using ``local_settings`` credentials."""
     try:
         import local_settings  # type: ignore
@@ -80,12 +82,22 @@ def _build_llm_fn(model_name: str):
     if not api_key or api_key.startswith("PASTE"):
         raise RuntimeError("CHATANYWHERE_API_KEY not set in local_settings.py")
 
+    temperature = float(model_cfg.get("temperature", 0.2))
+    top_p = float(model_cfg.get("top_p", 0.95))
+    max_tokens = int(model_cfg.get("mutation_max_tokens", model_cfg.get("max_tokens", 1024)))
+    stop = model_cfg.get("stop_tokens")
+    api_model = str(model_cfg.get("version", model_name))
+
     def llm_fn(prompt: str) -> str:
         return chatanywhere_summarize(
             text=prompt,
             api_key=api_key,
             endpoint=endpoint,
-            model=model_name,
+            model=api_model,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            stop=stop,
             timeout=60,
         ) or ""
     return llm_fn
@@ -98,9 +110,13 @@ def main(argv=None):
     llm_cfg = cfg.get("llm", {})
     top_k = args.top_k or int(aug_cfg.get("top_k", 5))
     top_m = int(aug_cfg.get("top_m", 3))
+    max_retries = int(aug_cfg.get("max_retries", 3))
     delta_h_lower = float(aug_cfg.get("delta_h_lower", 0.30))
     delta_h_upper = float(aug_cfg.get("delta_h_upper", 0.95))
-    model_name = llm_cfg.get("default", "gpt-4o")
+    model_name = args.model or llm_cfg.get("default", "gpt-4o")
+    model_cfg = (llm_cfg.get("models", {}) or {}).get(model_name, {})
+    if model_name not in (llm_cfg.get("models", {}) or {}):
+        raise ValueError(f"unknown LLM model key: {model_name}")
 
     handler = get_handler(args.dataset, True, cfg.get("paths", {}), scene_name=args.scene)
     handler.load()
@@ -128,7 +144,7 @@ def main(argv=None):
         llm_fn = _mock_llm_fn
         llm_tag = "mock"
     else:
-        llm_fn = _build_llm_fn(model_name)
+        llm_fn = _build_llm_fn(model_name, model_cfg)
         llm_tag = model_name
 
     print(
@@ -144,6 +160,7 @@ def main(argv=None):
         "scene": args.scene,
         "top_k": top_k,
         "top_m": top_m,
+        "max_retries": max_retries,
         "delta_h_lower": delta_h_lower,
         "delta_h_upper": delta_h_upper,
         "llm": llm_tag,
@@ -157,44 +174,58 @@ def main(argv=None):
             if not regions:
                 continue
             for region_rank, (benign_region, attack_region, pi_map, score) in enumerate(regions[:top_m]):
-                g_mut = subgraph_replacement(
-                    g_anchor, g_attack, benign_region, attack_region, pi_map,
-                )
-                if g_mut is None:
-                    continue
-                replaced = set(benign_region)
-                g_mut, _edge_actions = apply_edge_mutation_llm(
-                    g_mut, replaced, llm_fn=llm_fn,
-                )
-                g_mut = apply_semantic_mutation_llm(
-                    g_mut,
-                    attack_node_indices=list(replaced),
-                    benign_commands=benign_commands,
-                    benign_args=benign_args_set,
-                    llm_fn=llm_fn,
-                    model_name=model_name,
-                )
-                passed, _failed = verify_mutation(
-                    g_mut, g_anchor, replaced, entity_ops, type_attrs,
-                    delta_h=delta_h_lower, delta_h_upper=delta_h_upper,
-                )
-                if passed:
-                    admitted += 1
-                    graph_name = f"{args.dataset}_{args.scene or 'all'}_b{b_idx}_a{attack_idx}_r{region_rank}.pkl"
-                    graph_path = out_dir / graph_name
-                    with graph_path.open("wb") as f:
-                        pickle.dump(g_mut, f)
-                    manifest["admitted"].append({
-                        "graph": graph_name,
-                        "benign_snapshot": int(b_idx),
-                        "attack_snapshot": int(attack_idx),
-                        "retrieval_similarity": float(sim),
-                        "region_score": float(score),
-                        "replaced_nodes": sorted(int(x) for x in replaced),
-                    })
-                else:
+                accepted = False
+                last_failed = []
+                for attempt in range(1, max_retries + 1):
+                    g_mut = subgraph_replacement(
+                        g_anchor, g_attack, benign_region, attack_region, pi_map,
+                    )
+                    if g_mut is None:
+                        last_failed = ["structural_replacement"]
+                        break
+                    replaced = set(benign_region)
+                    g_mut, _edge_actions = apply_edge_mutation_llm(
+                        g_mut, replaced, llm_fn=llm_fn,
+                    )
+                    g_mut = apply_semantic_mutation_llm(
+                        g_mut,
+                        attack_node_indices=list(replaced),
+                        benign_commands=benign_commands,
+                        benign_args=benign_args_set,
+                        llm_fn=llm_fn,
+                        model_name=model_name,
+                    )
+                    passed, failed = verify_mutation(
+                        g_mut, g_anchor, replaced, entity_ops, type_attrs,
+                        delta_h=delta_h_lower, delta_h_upper=delta_h_upper,
+                    )
+                    last_failed = failed
+                    if passed:
+                        admitted += 1
+                        graph_name = f"{args.dataset}_{args.scene or 'all'}_b{b_idx}_a{attack_idx}_r{region_rank}.pkl"
+                        graph_path = out_dir / graph_name
+                        with graph_path.open("wb") as f:
+                            pickle.dump(g_mut, f)
+                        manifest["admitted"].append({
+                            "graph": graph_name,
+                            "benign_snapshot": int(b_idx),
+                            "attack_snapshot": int(attack_idx),
+                            "retrieval_similarity": float(sim),
+                            "region_score": float(score),
+                            "replaced_nodes": sorted(int(x) for x in replaced),
+                            "attempt": int(attempt),
+                        })
+                        accepted = True
+                        break
+                if not accepted:
                     rejected += 1
                     manifest["rejected"] += 1
+                    manifest.setdefault("rejection_details", []).append({
+                        "benign_snapshot": int(b_idx),
+                        "attack_snapshot": int(attack_idx),
+                        "region_rank": int(region_rank),
+                        "failed_checks": list(last_failed),
+                    })
 
     print(f"[augmentation] dataset={args.dataset} admitted={admitted} rejected={rejected}")
     manifest["admitted_count"] = admitted

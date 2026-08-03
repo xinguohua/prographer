@@ -3,7 +3,7 @@
 # Paths section: replace each <DATASET_ROOT> placeholder with the absolute
 # path to your unpacked dataset directory before running any script. The keys
 # here match the dataset names accepted by `--dataset` (cadets, theia, trace,
-# clearscope, cadets5, theia5, atlas, optcday1).
+# clearscope, cadets5, theia5, trace5, clearscope5, atlas, optcday1).
 
 paths:
   theia:      <DARPA_E3_THEIA_ROOT>
@@ -12,6 +12,8 @@ paths:
   trace:      <DARPA_E3_TRACE_ROOT>
   cadets5:    <DARPA_E5_CADETS_ROOT>
   theia5:     <DARPA_E5_THEIA_ROOT>
+  trace5:     <DARPA_E5_TRACE_ROOT>
+  clearscope5: <DARPA_E5_CLEARSCOPE_ROOT>
   atlas:      <ATLAS_ROOT>
   optcday1:   <OPTC_DAY1_ROOT>
 
@@ -40,6 +42,7 @@ gin:
 augmentation:
   top_k:           5    # WL retrieval — number of attack candidates per benign anchor
   top_m:           3    # per-anchor number of mutated variants kept
+  max_retries:     3    # retry budget for candidates that fail unified verification
   delta_h_lower:   0.30 # WL similarity lower bound (Paper §IV.C, check 4)
   delta_h_upper:   0.95 # WL similarity upper bound
   max_region_size: 32   # cap on aligned region size
@@ -72,11 +75,40 @@ llm:
   default: gpt-4o
   models:
     gpt-4o:
+      version: gpt-4o-2024-11-20
       temperature: 0.2
-      max_tokens:  512
+      top_p: 0.95
+      selection_max_tokens: 512
+      mutation_max_tokens: 1024
+      stop_tokens: ["\n\n"]
+    qwen2.5-7b:
+      version: Qwen2.5-7B-Instruct
+      temperature: 0.2
+      top_p: 0.95
+      top_k: 40
+      selection_max_tokens: 512
+      mutation_max_tokens: 1024
+      stop_tokens: ["<|im_end|>"]
     qwen2.5-14b:
+      version: Qwen2.5-14B-Instruct
       temperature: 0.2
-      max_tokens:  512
+      top_p: 0.95
+      top_k: 40
+      selection_max_tokens: 512
+      mutation_max_tokens: 1024
+      stop_tokens: ["<|im_end|>"]
     deepseek-v3:
+      version: DeepSeek-V3-0324
       temperature: 0.2
-      max_tokens:  512
+      top_p: 0.95
+      selection_max_tokens: 512
+      mutation_max_tokens: 1024
+      stop_tokens: ["\n\n"]
+    glm-4:
+      version: glm-4-9b-chat
+      temperature: 0.2
+      top_p: 0.95
+      top_k: 40
+      selection_max_tokens: 512
+      mutation_max_tokens: 1024
+      stop_tokens: ["<|user|>"]

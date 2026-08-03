@@ -29,6 +29,9 @@ def chatanywhere_summarize(
     endpoint: str,
     model: str = "gpt-3.5-turbo",
     temperature: float = 0.2,
+    top_p: float = 0.95,
+    max_tokens: int = 1024,
+    stop=None,
     timeout: float = 30.0,
     return_usage: bool = False,
 ) -> str:
@@ -37,11 +40,15 @@ def chatanywhere_summarize(
     body = {
         "model": model,
         "temperature": max(0.0, float(temperature)),
+        "top_p": float(top_p),
+        "max_tokens": int(max_tokens),
         "messages": [
             {"role": "system", "content": "youis's total. "},
             {"role": "user", "content": text},
         ],
     }
+    if stop:
+        body["stop"] = stop
     try:
         resp = requests.post(
             endpoint,
@@ -69,6 +76,9 @@ def make_chatanywhere_summarizer(
     endpoint: str,
     model: str = "gpt-3.5-turbo",
     temperature: float = 0.2,
+    top_p: float = 0.95,
+    max_tokens: int = 1024,
+    stop=None,
     timeout: float = 30.0,
 ) -> Callable[[str], str]:
     def _fn(text: str) -> str:
@@ -78,6 +88,9 @@ def make_chatanywhere_summarizer(
             endpoint=endpoint,
             model=model,
             temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            stop=stop,
             timeout=timeout,
         )
     return _fn

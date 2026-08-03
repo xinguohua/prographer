@@ -40,7 +40,7 @@ from src.utils.config import load_config
 
 SUPPORTED_DATASETS = (
     "cadets", "theia", "trace", "clearscope",
-    "cadets5", "theia5",
+    "cadets5", "theia5", "trace5", "clearscope5",
     "atlas", "optcday1",
 )
 
@@ -187,6 +187,10 @@ def main(argv=None):
             return
         mal_indices = list(range(mal_start, mal_end + 1))
         malicious_uuids = load_malicious_uuids(args.dataset, args.scene or "")
+        if not malicious_uuids:
+            raise RuntimeError(
+                f"no released malicious-entity labels found for dataset={args.dataset} scene={args.scene}"
+            )
     else:
         detected_by_snapshot = _load_detected_nodes(args.detections)
         mal_indices = sorted(detected_by_snapshot)

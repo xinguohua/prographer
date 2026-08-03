@@ -6,6 +6,7 @@ them as a set so callers can label each node embedding with 0 / 1.
 """
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Iterable, Optional, Set
 
@@ -20,8 +21,23 @@ DATASET_LABEL_DIR = {
     "clearscope": "darpa_e3",
     "cadets5":    "darpa_e5",
     "theia5":     "darpa_e5",
+    "trace5":     "darpa_e5",
+    "clearscope5": "darpa_e5",
     "optcday1":   "optc",
     "atlas":      "atlas",
+}
+
+DATASET_SCENE_PREFIX = {
+    "cadets": ("cadets",),
+    "theia": ("theia",),
+    "trace": ("trace",),
+    "clearscope": ("clearscope",),
+    "cadets5": ("cadets",),
+    "theia5": ("theia",),
+    "trace5": ("trace",),
+    "clearscope5": ("clearscope",),
+    "optcday1": ("host_",),
+    "atlas": ("M",),
 }
 
 
@@ -34,23 +50,42 @@ def _scene_to_basename(dataset: str, scene: str) -> str:
 def load_malicious_uuids(dataset: str, scene: str) -> Set[str]:
     """Return the set of malicious-entity UUIDs released for `<dataset>/<scene>`.
 
-    Falls back to an empty set if the file is missing so the caller can
-    proceed (no node will be labelled malicious, equivalent to the
-    benign-only training mode).
+    If ``scene`` is empty, all released scene files whose basename matches the
+    dataset key are loaded. This keeps multi-scene runs from accidentally
+    mixing labels across DARPA hosts.
     """
     label_dir = DATASET_LABEL_DIR.get(dataset)
     if label_dir is None:
         return set()
-    base = _scene_to_basename(dataset, scene)
-    p = REPO_ROOT / "data" / "annotated_labels" / label_dir / "malicious_entities" / f"{base}.txt"
-    if not p.exists():
-        return set()
+    root = REPO_ROOT / "data" / "annotated_labels" / label_dir / "malicious_entities"
+    paths = []
+    if scene:
+        base = _scene_to_basename(dataset, scene)
+        paths = [root / f"{base}.txt", root / f"{base}.csv"]
+    else:
+        prefixes = DATASET_SCENE_PREFIX.get(dataset, ("",))
+        paths = sorted(
+            p for p in list(root.glob("*.txt")) + list(root.glob("*.csv"))
+            if any(p.stem.startswith(prefix) for prefix in prefixes)
+        )
     uuids = set()
-    with p.open("r", encoding="utf-8") as f:
-        for line in f:
-            t = line.strip()
-            if t:
-                uuids.add(t)
+    for p in paths:
+        if not p.exists():
+            continue
+        if p.suffix.lower() == ".csv":
+            with p.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    for key in ("actorID", "objectID", "uuid", "name"):
+                        value = (row.get(key) or "").strip()
+                        if value:
+                            uuids.add(value)
+        else:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    t = line.strip()
+                    if t:
+                        uuids.add(t)
     return uuids
 
 
