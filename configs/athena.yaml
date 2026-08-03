@@ -49,7 +49,7 @@ augmentation:
 
 # Contrastive learning (Paper §IV.D).
 contrastive:
-  temperature:     0.10
+  temperature:     0.07
   hard_weight:     2.0  # weight multiplier for hard-mined negatives
 
 # Detection head (Paper §IV.D).

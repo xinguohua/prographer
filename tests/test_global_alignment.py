@@ -12,11 +12,11 @@ def test_lcs_min_ratio_uses_paper_denominator():
     assert lcs_min_ratio(predicted, reference) == 1.0
 
 
-def test_full_match_penalizes_missing_stages():
+def test_full_match_uses_paper_lcs_min_score():
     reference = ["Initial Access", "Persistence", "Execution", "Exfiltration"]
     predicted = ["Initial Access", "Execution", "Exfiltration"]
 
-    assert lcs_full_match_score(predicted, reference) == 0.75
+    assert lcs_full_match_score(predicted, reference) == 1.0
 
 
 def test_single_tactic_does_not_match_full_chain():

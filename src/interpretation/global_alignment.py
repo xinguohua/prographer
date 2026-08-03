@@ -1,12 +1,10 @@
-"""Paper §IV.E — Global sequence alignment via longest common subsequence.
+"""Paper §IV.E - Global sequence alignment via longest common subsequence.
 
 A predicted ATT&CK technique sequence is matched against the curated
 attack-sequence library at
 ``data/attack_knowledge/attackseqbench/technique_sequences.txt`` using
-longest common subsequence (LCS). ATHENA retains Eq. (8)'s local
-``LCS(Q, R) / min(|Q|, |R|)`` term, but full-match filtering also requires
-multi-stage coverage so isolated single-tactic alerts cannot match an entire
-attack chain.
+longest common subsequence (LCS). The consistency score follows Eq. (8):
+``LCS(Q, R) / min(|Q|, |R|)``.
 """
 from __future__ import annotations
 
@@ -69,18 +67,8 @@ def lcs_min_ratio(predicted: List[str], reference: List[str]) -> float:
 
 
 def lcs_full_match_score(predicted: List[str], reference: List[str]) -> float:
-    """Return full-chain consistency for Table VIII/chain filtering.
-
-    The local Eq. (8) term is multiplied by reference coverage. This preserves
-    ordering sensitivity while penalizing missing stages and preventing a
-    one-tactic subsequence from being treated as a full attack-chain match.
-    """
-    if not predicted or not reference:
-        return 0.0
-    lcs = lcs_length(predicted, reference)
-    local = lcs / min(len(predicted), len(reference))
-    coverage = lcs / len(reference)
-    return local * coverage
+    """Return the Eq. (8) LCS/min consistency score for chain filtering."""
+    return lcs_min_ratio(predicted, reference)
 
 
 def lcs_indices_keep_mask(a: List[str], b: List[str]) -> Tuple[List[bool], int]:
