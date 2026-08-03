@@ -112,6 +112,9 @@ python scripts/run_interpretation.py --config configs/athena.yaml --dataset cade
 
 # Artifact structure check
 python scripts/validate_artifact.py
+
+# Human-rating agreement check for the released rating sheet
+python scripts/compute_rating_agreement.py --ratings data/human_ratings.csv
 ```
 
 Supported `--dataset` values: `cadets, theia, trace, clearscope` (DARPA E3); `cadets5, theia5, trace5, clearscope5` (DARPA E5); `optcday1` (OpTC day 1); `atlas` (ATLAS). The released label directory contains the scene files used by the artifact tables; additional local scenes can be evaluated by adding matching malicious-entity and ATT&CK label files under `data/annotated_labels/`.

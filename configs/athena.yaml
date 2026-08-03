@@ -58,7 +58,7 @@ detection:
   mlp_hidden:      256
   epochs:          50
   use_temporal:    true
-  split_mode:      chronological_by_snapshot_order
+  split_mode:      chronological_by_snapshot_timestamp
   train_ratio:     0.70
 
 # Global attack interpretation (Paper §IV.E; Supp G.2 v).
@@ -67,7 +67,7 @@ interpretation:
   topk_candidates:     10
   gamma:               0.50  # confidence threshold below which a mapping is Unmapped
   tactic_queue_retention_days: 7
-  lcs_min_ratio:       0.60  # LCS(Q,R) / min(|Q|, |R|) cutoff for a hit
+  lcs_min_ratio:       0.60  # full-chain tactic match cutoff after Eq. (8) local LCS
 
 # LLM configuration (Supp E). Per-model settings live in this map; runtime
 # selects a row by `name` and reads the rest. The API key itself is read from

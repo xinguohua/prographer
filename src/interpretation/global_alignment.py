@@ -3,9 +3,10 @@
 A predicted ATT&CK technique sequence is matched against the curated
 attack-sequence library at
 ``data/attack_knowledge/attackseqbench/technique_sequences.txt`` using
-longest common subsequence (LCS). The released implementation follows the
-paper criterion ``LCS(Q, R) / min(|Q|, |R|)`` and admits sequences whose score
-exceeds ``lcs_min_ratio`` in ``configs/athena.yaml::interpretation``.
+longest common subsequence (LCS). ATHENA retains Eq. (8)'s local
+``LCS(Q, R) / min(|Q|, |R|)`` term, but full-match filtering also requires
+multi-stage coverage so isolated single-tactic alerts cannot match an entire
+attack chain.
 """
 from __future__ import annotations
 
@@ -67,6 +68,21 @@ def lcs_min_ratio(predicted: List[str], reference: List[str]) -> float:
     return lcs_length(predicted, reference) / min(len(predicted), len(reference))
 
 
+def lcs_full_match_score(predicted: List[str], reference: List[str]) -> float:
+    """Return full-chain consistency for Table VIII/chain filtering.
+
+    The local Eq. (8) term is multiplied by reference coverage. This preserves
+    ordering sensitivity while penalizing missing stages and preventing a
+    one-tactic subsequence from being treated as a full attack-chain match.
+    """
+    if not predicted or not reference:
+        return 0.0
+    lcs = lcs_length(predicted, reference)
+    local = lcs / min(len(predicted), len(reference))
+    coverage = lcs / len(reference)
+    return local * coverage
+
+
 def lcs_indices_keep_mask(a: List[str], b: List[str]) -> Tuple[List[bool], int]:
     """Return a boolean mask over ``a`` marking positions that participate in
     one specific LCS of ``a`` and ``b``, together with the LCS length."""
@@ -98,14 +114,17 @@ def best_library_match(
     predicted: List[str],
     library: List[List[str]],
     min_ratio: float = 0.60,
+    min_stages: int = 3,
 ) -> Tuple[Optional[List[str]], float]:
-    """Return the library sequence with the highest paper LCS/min score."""
+    """Return the best full-chain library match."""
     best_seq: Optional[List[str]] = None
     best_score: float = 0.0
+    if len(predicted) < min_stages:
+        return None, 0.0
     for ref in library:
         if not ref:
             continue
-        score = lcs_min_ratio(predicted, ref)
+        score = lcs_full_match_score(predicted, ref)
         if score > best_score:
             best_score = score
             best_seq = ref

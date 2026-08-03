@@ -1,9 +1,9 @@
-"""Technique → tactic aggregation and tactic-sequence LCS/min alignment.
+"""Technique → tactic aggregation and tactic-sequence full-match alignment.
 
 The semantic matcher emits parent-level MITRE ATT&CK techniques (e.g. T1071);
 the global interpretation stage aggregates them to the coarser ATT&CK tactic
 layer (e.g. ``Command and Control``) and aligns the resulting tactic sequence
-against the attack-sequence library via the paper's LCS/min criterion.
+against the attack-sequence library with multi-stage full-match filtering.
 """
 from __future__ import annotations
 
@@ -236,7 +236,7 @@ def best_tactic_match(
     min_ratio: float = 0.60,
 ):
     """Convenience wrapper around :func:`best_library_match` for tactic
-    sequences. Returns ``(best_library_sequence, lcs_ratio)`` or ``(None,
+    sequences. Returns ``(best_library_sequence, full_match_score)`` or ``(None,
     best_ratio)`` if no library sequence meets ``min_ratio``."""
     if tactic_library is None:
         tactic_library = load_tactic_sequence_library()

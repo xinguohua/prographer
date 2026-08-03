@@ -159,48 +159,45 @@ def _chronological_split(snapshot_ids, train_ratio: float):
     return snapshot_ids[:cut], snapshot_ids[cut:]
 
 
+def _snapshot_time_key(handler, sid: int) -> tuple:
+    snapshots = getattr(handler, "snapshots", [])
+    if sid < 0 or sid >= len(snapshots):
+        return (1, sid)
+    g = snapshots[sid]
+    values = []
+    try:
+        if g is not None and g.vcount() > 0 and "timestamp" in g.vs.attributes():
+            values.extend(float(v) for v in g.vs["timestamp"] if v is not None)
+    except Exception:
+        pass
+    try:
+        if g is not None and g.ecount() > 0 and "timestamp" in g.es.attributes():
+            values.extend(float(v) for v in g.es["timestamp"] if v is not None)
+    except Exception:
+        pass
+    values = [v for v in values if np.isfinite(v)]
+    if not values:
+        return (1, sid)
+    return (0, min(values), sid)
+
+
 def build_split(handler, train_ratio: float):
-    """Return paper-style chronological train/test snapshot partitions.
-
-    The public artifact stores snapshots in their construction order. For each
-    benign and attack block, the earliest windows are used for training and the
-    remaining windows are held out for detector metrics.
-    """
-    benign_ids = _snapshot_range(
-        getattr(handler, "benign_idx_start", None),
-        getattr(handler, "benign_idx_end", None),
-    )
-    malicious_ids = _snapshot_range(
-        getattr(handler, "malicious_idx_start", None),
-        getattr(handler, "malicious_idx_end", None),
-    )
     all_ids = list(range(len(getattr(handler, "snapshots", []))))
-    covered = set(benign_ids) | set(malicious_ids)
-    unlabeled_ids = [sid for sid in all_ids if sid not in covered]
-
-    ben_train, ben_test = _chronological_split(benign_ids, train_ratio)
-    mal_train, mal_test = _chronological_split(malicious_ids, train_ratio)
-    unl_train, unl_test = _chronological_split(unlabeled_ids, train_ratio)
-
-    train_ids = sorted(set(ben_train + mal_train + unl_train))
-    test_ids = sorted(set(ben_test + mal_test + unl_test))
+    ordered_ids = sorted(all_ids, key=lambda sid: _snapshot_time_key(handler, sid))
+    train_ids, test_ids = _chronological_split(ordered_ids, train_ratio)
     if not test_ids:
         test_ids = train_ids[:]
 
     return train_ids, test_ids, {
-        "mode": "chronological_by_snapshot_order",
+        "mode": "chronological_by_snapshot_timestamp",
         "train_ratio": float(train_ratio),
         "train_snapshots": train_ids,
         "test_snapshots": test_ids,
-        "blocks": {
-            "benign": {"train": ben_train, "test": ben_test},
-            "malicious": {"train": mal_train, "test": mal_test},
-            "unlabeled": {"train": unl_train, "test": unl_test},
-        },
+        "ordered_snapshots": ordered_ids,
     }
 
 
-def load_augmented_graphs(path: Union[str, Path]):
+def load_augmented_graphs(path: Union[str, Path], allowed_anchor_ids: Optional[set[int]] = None):
     """Load admitted augmented graphs produced by ``run_augmentation.py``.
 
     Returns ``(mutation_map, metadata)`` where ``mutation_map`` is keyed by the
@@ -214,6 +211,7 @@ def load_augmented_graphs(path: Union[str, Path]):
         "path": str(aug_dir),
         "manifest": str(manifest_path),
         "loaded_graphs": 0,
+        "filtered_graphs": 0,
         "available": False,
     }
     if not manifest_path.exists():
@@ -232,6 +230,9 @@ def load_augmented_graphs(path: Union[str, Path]):
             graph = pickle.load(f)
         anchor_sid = int(item.get("benign_snapshot", -1))
         if anchor_sid >= 0:
+            if allowed_anchor_ids is not None and anchor_sid not in allowed_anchor_ids:
+                metadata["filtered_graphs"] += 1
+                continue
             mutation_map.setdefault(anchor_sid, []).append(graph)
             metadata["loaded_graphs"] += 1
     metadata["available"] = True
@@ -246,8 +247,8 @@ def main(argv=None):
     cfg = load_config(Path(args.config))
     path_map = cfg.get("paths", {})
     det_cfg = cfg.get("detection", {})
-    split_mode = str(det_cfg.get("split_mode", "chronological_by_snapshot_order"))
-    if split_mode != "chronological_by_snapshot_order":
+    split_mode = str(det_cfg.get("split_mode", "chronological_by_snapshot_timestamp"))
+    if split_mode != "chronological_by_snapshot_timestamp":
         raise ValueError(f"unsupported detection.split_mode: {split_mode}")
 
     handler = prepare_data(path_map, args.dataset, args.scene)
@@ -259,7 +260,10 @@ def main(argv=None):
         f"test_snapshots={len(test_snapshot_ids)} train_ratio={train_ratio:.2f}"
     )
 
-    mutation_map, augmentation_meta = load_augmented_graphs(args.augmented_dir)
+    mutation_map, augmentation_meta = load_augmented_graphs(
+        args.augmented_dir,
+        allowed_anchor_ids=set(train_snapshot_ids),
+    )
     if mutation_map:
         print(
             f"[node-detection] loaded_augmented_graphs={augmentation_meta['loaded_graphs']} "

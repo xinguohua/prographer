@@ -36,6 +36,8 @@ def main() -> int:
         "scripts/run_augmentation.py",
         "scripts/run_detection.py",
         "scripts/run_interpretation.py",
+        "scripts/compute_rating_agreement.py",
+        "data/human_ratings.csv",
     ]
     for rel in required_files:
         checks.append((rel, _exists(REPO_ROOT / rel)))

@@ -87,11 +87,30 @@ class ATLASHandler(BaseProcessor):
             return []
 
         sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
-        snapshot_size = 100  # each snapshot_size entryedgebecome1snapshot
+        chunks = []
+        if 'timestamp' in sorted_df.columns:
+            ts = pd.to_numeric(sorted_df['timestamp'], errors='coerce')
+            if ts.notna().any():
+                tmp = sorted_df.copy()
+                tmp['timestamp_dt'] = pd.to_datetime(ts, unit='s', errors='coerce')
+                if tmp['timestamp_dt'].isna().all():
+                    tmp['timestamp_dt'] = pd.to_datetime(ts, unit='ms', errors='coerce')
+                if not tmp['timestamp_dt'].isna().all():
+                    window = pd.Timedelta(minutes=1)
+                    t_min, t_max = tmp['timestamp_dt'].min(), tmp['timestamp_dt'].max()
+                    bins = pd.date_range(start=t_min, end=t_max + window, freq=window)
+                    chunks = [
+                        tmp[(tmp['timestamp_dt'] >= bins[i]) & (tmp['timestamp_dt'] < bins[i + 1])]
+                        for i in range(len(bins) - 1)
+                    ]
+        if not chunks:
+            snapshot_size = 100
+            chunks = [
+                sorted_df.iloc[start:start + snapshot_size]
+                for start in range(0, len(sorted_df), snapshot_size)
+            ]
 
-        total_edges = len(sorted_df)
-        for start in range(0, total_edges, snapshot_size):
-            chunk = sorted_df.iloc[start:start + snapshot_size]
+        for chunk in chunks:
             if chunk.empty:
                 continue
 

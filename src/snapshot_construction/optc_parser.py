@@ -172,8 +172,7 @@ class OptcHandler(BaseProcessor):
                     print(f"warning: snapshottimeoutwrong: {e}")
 
         elif mode == "time":
-            window = pd.Timedelta(minutes=5)
-            # window = pd.Timedelta(minutes=2)
+            window = pd.Timedelta(minutes=1)
             df["timestamp_dt"] = pd.to_datetime(df["timestamp"], errors="coerce")  # OPTCuseISOstring, connectconvert
             t_min, t_max = df["timestamp_dt"].min(), df["timestamp_dt"].max()
             if pd.isna(t_min) or pd.isna(t_max):

@@ -27,8 +27,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.detection.node_labels import load_malicious_uuids
 from src.interpretation.attack_subgraph import extract_attack_subgraph, extract_key_path
-from src.interpretation.global_alignment import lcs_min_ratio
-from src.interpretation.semantic_matching import TechniqueSemanticMapper, snapshot_to_query
+from src.interpretation.global_alignment import lcs_full_match_score
+from src.interpretation.semantic_matching import TechniqueSemanticMapper, path_edges_to_query, snapshot_to_query
 from src.interpretation.tactic_alignment import (
     best_tactic_match,
     load_tactic_sequence_library,
@@ -249,7 +249,9 @@ def main(argv=None):
         attack_sub = extract_attack_subgraph(snap, mal_nodes)
         key_path = extract_key_path(snap, mal_nodes)
 
-        query = snapshot_to_query(attack_sub, node_scope="malicious")
+        node_query = snapshot_to_query(attack_sub, node_scope="malicious")
+        path_query = path_edges_to_query(snap, key_path)
+        query = ". ".join(part for part in (node_query, path_query) if part)
         if not query:
             query = snapshot_to_query(snap, node_scope="malicious")
         if not query:
@@ -277,8 +279,10 @@ def main(argv=None):
             "malicious_nodes": len(mal_nodes),
             "key_path_edges": len(key_path),
             "technique": tech_id,
+            "top_k_techniques": ranked,
             "tactic": tactic,
             "score": round(score, 4),
+            "path_query_preview": path_query[:160],
             "query_preview": query[:160],
         })
 
@@ -293,12 +297,12 @@ def main(argv=None):
 
     print(f"\n[interpretation] technique sequence (len={len(technique_seq)}): {technique_seq}")
     print(f"[interpretation] tactic    sequence (len={len(tactic_seq)}): {tactic_seq}")
-    print(f"[interpretation] best library match: {best_lib_seq} (LCS/min={best_score:.2f}"
+    print(f"[interpretation] best library match: {best_lib_seq} (FullMatch={best_score:.2f}"
           f", min_ratio={min_ratio:.2f}, {'HIT' if best_lib_seq else 'NO HIT'})")
     if tactic_lib and tactic_seq:
-        all_scores = [(ref, lcs_min_ratio(tactic_seq, ref)) for ref in tactic_lib if ref]
+        all_scores = [(ref, lcs_full_match_score(tactic_seq, ref)) for ref in tactic_lib if ref]
         all_scores.sort(key=lambda x: -x[1])
-        print("[interpretation] LCS/min scores vs every library sequence:")
+        print("[interpretation] FullMatch scores vs every library sequence:")
         for ref, r in all_scores:
             print(f"    ratio={r:.2f}  ref={ref}")
 
@@ -314,7 +318,7 @@ def main(argv=None):
                 {"timestamp": ts, "tactic": tactic} for ts, tactic in persistent_queue
             ],
             "best_library_match": best_lib_seq,
-            "best_lcs_min_ratio": best_score,
+            "best_full_match_score": best_score,
             "lcs_min_ratio": min_ratio,
             "tactic_queue_retention_days": retention_days,
             "input_mode": "ground_truth" if args.use_ground_truth else "detector_output",

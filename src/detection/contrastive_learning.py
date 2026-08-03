@@ -454,7 +454,7 @@ class GCCEmbedderDev(GraphEmbedderBase):
             mean loss
         """
         device = self.device
-        all_x, all_e, all_node_counts = [], [], []
+        all_x, all_e, all_node_counts, all_node_ids = [], [], [], []
         total_nodes_offset = 0
 
         all_ef = []
@@ -471,6 +471,7 @@ class GCCEmbedderDev(GraphEmbedderBase):
             all_e.append(e_t)
             all_ef.append(ef_t)
             all_node_counts.append(g.vcount())
+            all_node_ids.extend([g.vs[i]['name'] for i in range(g.vcount())])
             total_nodes_offset += g.vcount()
 
         if not all_x:
@@ -485,8 +486,9 @@ class GCCEmbedderDev(GraphEmbedderBase):
         )
 
         # Forward
-        Z_layers = self.encoder(X_pos, E_pos, edge_feat=EF_pos, return_all=True)
-        H_last = Z_layers[-1]
+        H_last = self._encode_node_layers(
+            X_pos, E_pos, EF_pos, all_node_ids, commit_temporal=True,
+        )
         sums = torch.zeros((Bc, H_last.size(1)), device=device)
         cnts = torch.zeros(Bc, device=device)
         sums.index_add_(0, graph_ids, H_last)
@@ -533,9 +535,10 @@ class GCCEmbedderDev(GraphEmbedderBase):
         self.optimizer.zero_grad(set_to_none=True)
         loss = self._weighted_contrastive_loss(Z_pos, Z_neg, temperature=self.temperature)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            list(self.encoder.parameters()) + list(self.proj_head.parameters()), max_norm=5.0
-        )
+        clip_params = list(self.encoder.parameters()) + list(self.proj_head.parameters())
+        if self.use_temporal:
+            clip_params += list(self.temporal.parameters())
+        torch.nn.utils.clip_grad_norm_(clip_params, max_norm=5.0)
         self.optimizer.step()
         return float(loss.detach().cpu().item())
 
@@ -567,8 +570,10 @@ class GCCEmbedderDev(GraphEmbedderBase):
             x_t = torch.from_numpy(x_np).to(device)
             e_t, ef_t = self._igraph_edges_to_edge_index(sub)
 
-            Z_layers = self.encoder(x_t, e_t, edge_feat=ef_t, return_all=True)
-            H = Z_layers[-1]
+            node_ids = [sub.vs[i]['name'] for i in range(sub.vcount())]
+            H = self._encode_node_layers(
+                x_t, e_t, ef_t, node_ids, commit_temporal=False,
+            )
             graph_emb = H.mean(dim=0, keepdim=True)
             ego_embeddings.append(graph_emb)
 
@@ -610,8 +615,10 @@ class GCCEmbedderDev(GraphEmbedderBase):
                     x_t[idx] = fused[j]
 
         e_t, ef_t = self._igraph_edges_to_edge_index(g_ego)
-        Z_layers = self.encoder(x_t, e_t.to(device), edge_feat=ef_t.to(device), return_all=True)
-        H = Z_layers[-1]
+        node_ids = [g_ego.vs[i]['name'] for i in range(g_ego.vcount())]
+        H = self._encode_node_layers(
+            x_t, e_t.to(device), ef_t.to(device), node_ids, commit_temporal=False,
+        )
         graph_emb = H.mean(dim=0, keepdim=True)  # [1, hidden]
         return F.normalize(self.proj_head(graph_emb), dim=-1)  # [1, D]
 
@@ -694,9 +701,12 @@ class GCCEmbedderDev(GraphEmbedderBase):
             E_pos = torch.cat(E_pos_cols, dim=1)
             EF_pos = torch.cat(ef_list, dim=0) if ef_list else None
 
-            def encode_batch(X, E, n_graphs, gids, ef=None):
-                Z_layers = self.encoder(X, E, edge_feat=ef, return_all=True)
-                H_last = Z_layers[-1]
+            def encode_batch(X, E, n_graphs, gids, ef=None, node_ids=None, commit_temporal=False):
+                if node_ids is None:
+                    node_ids = [str(i) for i in range(X.size(0))]
+                H_last = self._encode_node_layers(
+                    X, E, ef, node_ids, commit_temporal=commit_temporal,
+                )
                 sums = torch.zeros((n_graphs, H_last.size(1)), device=device)
                 cnts = torch.zeros(n_graphs, device=device)
                 sums.index_add_(0, gids, H_last)
@@ -704,7 +714,11 @@ class GCCEmbedderDev(GraphEmbedderBase):
                 means = sums / (cnts.clamp_min(1e-6).unsqueeze(1))
                 return F.normalize(self.proj_head(means), dim=-1)
 
-            Z_pos = encode_batch(X_pos, E_pos, Bc, graph_ids, ef=EF_pos)  # [Bc, D]
+            flat_node_ids = [nid for ids in ids_list for nid in ids]
+            Z_pos = encode_batch(
+                X_pos, E_pos, Bc, graph_ids, ef=EF_pos,
+                node_ids=flat_node_ids, commit_temporal=True,
+            )  # [Bc, D]
 
             # ======== negative sample N(b) = attacksample(share) + G̃_b egosubgraph() ========
             Z_neg_parts = []
@@ -749,6 +763,8 @@ class GCCEmbedderDev(GraphEmbedderBase):
 
             loss.backward()
             clip_params = list(self.encoder.parameters()) + list(self.proj_head.parameters())
+            if self.use_temporal:
+                clip_params += list(self.temporal.parameters())
             if self.strategy_moe is not None:
                 clip_params += list(self.strategy_moe.parameters())
             torch.nn.utils.clip_grad_norm_(clip_params, max_norm=5.0)
@@ -2230,6 +2246,25 @@ class GCCEmbedderDev(GraphEmbedderBase):
                 x_aug = x * (1.0 - mask)
 
         return x_aug, ei_aug, ef_aug
+
+    def _encode_node_layers(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_feat: Optional[torch.Tensor],
+        node_ids: List[str],
+        *,
+        commit_temporal: bool,
+    ) -> torch.Tensor:
+        """Encode nodes with GIN and the trainable GRU temporal layer."""
+        Z_layers = self.encoder(x, edge_index, edge_feat=edge_feat, return_all=True)
+        if not self.use_temporal:
+            return Z_layers[-1]
+        H_prev = self.temporal.fetch(node_ids, device=self.device)
+        H_layers = self.temporal(Z_layers, H_prev)
+        if commit_temporal:
+            self.temporal.commit(node_ids, [h.detach() for h in H_layers])
+        return H_layers[-1]
 
     def _augment_edges(self, edge_index: torch.Tensor, drop_p: float) -> torch.Tensor:
         """original (all ) edgeincreasestrong: not"""

@@ -137,8 +137,7 @@ class DARPAHandler5(BaseProcessor):
                     print(f"warning: snapshottimeoutwrong: {e}")
 
         elif mode == "time":
-            window = pd.Timedelta(minutes=5)
-            # window = pd.Timedelta(minutes=2)
+            window = pd.Timedelta(minutes=1)
             df["timestamp_dt"] = pd.to_numeric(df["timestamp"], errors="coerce")
             df["timestamp_dt"] = df["timestamp_dt"] // 1000
             df["timestamp_dt"] = pd.to_datetime(df["timestamp_dt"], unit="us", errors="coerce")  # convertis datetime

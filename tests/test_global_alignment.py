@@ -1,4 +1,8 @@
-from src.interpretation.global_alignment import lcs_min_ratio
+from src.interpretation.global_alignment import (
+    best_library_match,
+    lcs_full_match_score,
+    lcs_min_ratio,
+)
 
 
 def test_lcs_min_ratio_uses_paper_denominator():
@@ -6,6 +10,21 @@ def test_lcs_min_ratio_uses_paper_denominator():
     predicted = ["Initial Access", "Execution", "Exfiltration"]
 
     assert lcs_min_ratio(predicted, reference) == 1.0
+
+
+def test_full_match_penalizes_missing_stages():
+    reference = ["Initial Access", "Persistence", "Execution", "Exfiltration"]
+    predicted = ["Initial Access", "Execution", "Exfiltration"]
+
+    assert lcs_full_match_score(predicted, reference) == 0.75
+
+
+def test_single_tactic_does_not_match_full_chain():
+    reference = ["Initial Access", "Persistence", "Execution", "Exfiltration"]
+    predicted = ["Execution"]
+
+    assert lcs_min_ratio(predicted, reference) == 1.0
+    assert best_library_match(predicted, [reference], min_ratio=0.6) == (None, 0.0)
 
 
 def test_lcs_min_ratio_partial_order_match():

@@ -83,6 +83,30 @@ def snapshot_to_query(snapshot, *, node_scope: str = "malicious", max_nodes: int
     return ". ".join(triples) if triples else ""
 
 
+def path_edges_to_query(snapshot, key_path, max_edges: int = 80) -> str:
+    """Serialize extracted causal-path edges into ATT&CK matching text."""
+    triples = []
+    seen = set()
+    for src, dst, action in list(key_path)[:max_edges]:
+        try:
+            src_attrs = snapshot.vs[int(src)].attributes()
+            dst_attrs = snapshot.vs[int(dst)].attributes()
+        except Exception:
+            continue
+        src_type = str(src_attrs.get("type") or src_attrs.get("type_name") or "entity")
+        dst_type = str(dst_attrs.get("type") or dst_attrs.get("type_name") or "entity")
+        src_proc = _extract_process_name(str(src_attrs.get("properties") or ""))
+        dst_proc = _extract_process_name(str(dst_attrs.get("properties") or ""))
+        subject = get_process_role(src_proc) if src_proc else TYPE_MAP.get(src_type, src_type.lower())
+        obj = get_process_role(dst_proc) if dst_proc else TYPE_MAP.get(dst_type, dst_type.lower())
+        translated = translate_event(str(action)) or str(action).lower()
+        triple = f"{subject} {translated} {obj}".strip()
+        if triple and triple not in seen:
+            seen.add(triple)
+            triples.append(triple)
+    return ". ".join(triples)
+
+
 # ============================================================
 # ============================================================
 
