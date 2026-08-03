@@ -824,7 +824,8 @@ class GCCEmbedderDev(GraphEmbedderBase):
             f.write("[maliciousTokencollectlog]\n")
             f.write("=" * 60 + "\n")
 
-            for snap_idx, g in enumerate(self.snapshots):
+            for snap_idx in self.train_snapshot_indices:
+                g = self.snapshots[snap_idx]
                 if g is None or g.vcount() == 0:
                     continue
                 total_snapshots += 1
@@ -941,7 +942,7 @@ class GCCEmbedderDev(GraphEmbedderBase):
         - outputandlogall integer. 
         """
         self._mal_ego_pool: List[Tuple[int, int]] = []
-        train_ids = list(range(len(self.snapshots)))
+        train_ids = list(self.train_snapshot_indices)
         per_snapshot_mal: Dict[int, int] = {}
         log_path = "malicious_tokens_log.txt"
 

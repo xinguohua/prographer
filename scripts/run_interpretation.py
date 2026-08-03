@@ -58,6 +58,8 @@ def parse_args(argv=None):
                    help="optional JSON file to dump per-snapshot interpretation + alignment")
     p.add_argument("--detections", default=None,
                    help="JSON produced by scripts/run_detection.py; used as the interpretation input")
+    p.add_argument("--include-train-detections", action="store_true",
+                   help="also interpret detector positives from training snapshots; default uses held-out test positives only")
     p.add_argument("--use-ground-truth", action="store_true",
                    help="debug/evaluation mode: interpret released malicious UUIDs instead of detector output")
     return p.parse_args(argv)
@@ -107,7 +109,7 @@ def _mark_malicious(snap, malicious_uuids: set) -> int:
     return count
 
 
-def _load_detected_nodes(path: str) -> dict:
+def _load_detected_nodes(path: str, include_train: bool = False) -> dict:
     """Load detector positives from ``scripts/run_detection.py`` output.
 
     Returns ``{snapshot_id: set(uuid)}``. Ground-truth labels in the detection
@@ -118,6 +120,8 @@ def _load_detected_nodes(path: str) -> dict:
     out = {}
     for row in payload.get("predictions", []):
         if int(row.get("pred_label", 0)) != 1:
+            continue
+        if not include_train and row.get("split") not in (None, "test"):
             continue
         sid = int(row["snapshot"])
         out.setdefault(sid, set()).add(str(row["uuid"]))
@@ -130,7 +134,7 @@ def _mark_detected(snap, detected_uuids: set) -> int:
         attrs = snap.vs[v].attributes()
         name = str(attrs.get("name", ""))
         is_detected = name in detected_uuids
-        snap.vs[v]["label"] = 1 if is_detected else int(attrs.get("label", 0) or 0)
+        snap.vs[v]["label"] = 1 if is_detected else 0
         if is_detected:
             count += 1
     return count
@@ -192,7 +196,10 @@ def main(argv=None):
                 f"no released malicious-entity labels found for dataset={args.dataset} scene={args.scene}"
             )
     else:
-        detected_by_snapshot = _load_detected_nodes(args.detections)
+        detected_by_snapshot = _load_detected_nodes(
+            args.detections,
+            include_train=bool(args.include_train_detections),
+        )
         mal_indices = sorted(detected_by_snapshot)
         if not mal_indices:
             print(f"[interpretation] detector produced no malicious nodes in {args.detections}")

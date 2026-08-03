@@ -94,10 +94,25 @@ def apply_snapshot_cap(handler, max_snapshots: Optional[int]):
 def train_encoder(
     handler,
     train_snapshot_ids: Iterable[int],
+    cfg: dict,
     mutation_map: Optional[dict] = None,
     use_temporal: bool = False,
 ):
-    encoder = ATHENAEncoder(handler.snapshots, train_indices=sorted(set(train_snapshot_ids)))
+    gin_cfg = cfg.get("gin", {})
+    contrastive_cfg = cfg.get("contrastive", {})
+    encoder = ATHENAEncoder(
+        handler.snapshots,
+        train_indices=sorted(set(train_snapshot_ids)),
+        use_temporal=use_temporal,
+        prop_feat_dim=int(gin_cfg.get("hidden_dim", 64)),
+        enc_hidden_dim=int(gin_cfg.get("hidden_dim", 64)),
+        enc_out_dim=int(gin_cfg.get("out_dim", gin_cfg.get("hidden_dim", 64))),
+        gin_layers=int(gin_cfg.get("num_layers", 3)),
+        dropout=float(gin_cfg.get("dropout", 0.1)),
+        r_hop=int(gin_cfg.get("r_hop", 4)),
+        temperature=float(contrastive_cfg.get("temperature", 0.10)),
+        anomaly_alpha=float(contrastive_cfg.get("hard_weight", 2.0)),
+    )
     if mutation_map:
         encoder.mutation_map = mutation_map
     encoder.train()
@@ -256,12 +271,25 @@ def main(argv=None):
             "training uses original snapshots only"
         )
 
+    use_temporal = bool(det_cfg.get("use_temporal", True)) or bool(args.use_temporal)
+
     encoder = train_encoder(
         handler,
         train_snapshot_ids,
+        cfg,
         mutation_map=mutation_map,
-        use_temporal=args.use_temporal,
+        use_temporal=use_temporal,
     )
+    encoder_config = {
+        "use_temporal": bool(encoder.use_temporal),
+        "gin_layers": int(encoder.gin_layers),
+        "embedding_dim": int(encoder.enc_out_dim),
+        "hidden_dim": int(encoder.enc_hidden_dim),
+        "r_hop": int(encoder.r_hop),
+        "temperature": float(encoder.temperature),
+        "hard_weight": float(encoder.anomaly_alpha),
+        "train_snapshots": list(encoder.train_snapshot_indices),
+    }
 
     malicious_uuids = load_malicious_uuids(args.dataset, args.scene or "")
     if not malicious_uuids:
@@ -344,7 +372,8 @@ def main(argv=None):
     payload = {
         "dataset": args.dataset,
         "scene": args.scene,
-        "use_temporal": bool(args.use_temporal),
+        "use_temporal": bool(use_temporal),
+        "encoder_config": encoder_config,
         "metrics": metrics,
         "train_metrics": train_metrics,
         "split": split_meta,

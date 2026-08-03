@@ -3,20 +3,19 @@
 Each mutated graph G~ must pass four checks before it is admitted as a hard
 negative for contrastive learning:
 
-1. Operation legality (soft) - every edge whose endpoint sits in the replaced
+1. Operation legality - every edge whose endpoint sits in the replaced
    region must use an action that was observed for that source-entity type in
    the historical benign graphs.
-2. Attribute feasibility (soft) - every replaced node's attributes must lie in
+2. Attribute feasibility - every replaced node's attributes must lie in
    the observed attribute vocabulary for its node type.
-3. Imperceptibility (hard) - no boundary-touching edge may carry a
+3. Imperceptibility - no boundary-touching edge may carry a
    user-perceivable action (GUI create / show / notify / alert / prompt /
    dialog), which would otherwise tip off a human observer.
-4. Hardness (hard) - the WL similarity between the mutated graph and its
+4. Hardness - the WL similarity between the mutated graph and its
    benign anchor must lie within [delta_h, delta_h_upper]: similar enough to
    be a hard negative, distinct enough to carry attack signal.
 
-A mutation is *admitted* iff both hard checks pass; soft-check failures are
-reported but do not reject.
+A mutation is *admitted* iff all four checks pass.
 """
 from __future__ import annotations
 from collections import defaultdict
@@ -47,7 +46,7 @@ def build_historical_profiles(benign_graphs: list) -> Tuple[
     - ``entity_ops``  : entity-properties string -> set of actions observed,
     - ``type_attrs``  : node-type string         -> set of attribute strings.
 
-    These tables feed the soft operation-legality and attribute-feasibility
+    These tables feed the operation-legality and attribute-feasibility
     checks below.
     """
     from .semantic_mutation import _get_properties
@@ -75,10 +74,9 @@ def check_operation_legality(
     replaced_nodes: Set[int],
     entity_ops: Dict[str, Set[str]],
 ) -> bool:
-    """Soft check (paper §IV.C, check 1). Returns ``True`` when every
+    """Check 1 (paper §IV.C). Returns ``True`` when every
     boundary-touching edge uses an action that was previously observed for
-    its source-entity in ``entity_ops``. Reported for logging; not used to
-    reject mutations on its own."""
+    its source-entity in ``entity_ops``."""
     from .semantic_mutation import _get_properties
 
     if not entity_ops:
@@ -100,10 +98,9 @@ def check_attribute_feasibility(
     replaced_nodes: Set[int],
     type_attrs: Dict[str, Set[str]],
 ) -> bool:
-    """Soft check (paper §IV.C, check 2). Returns ``True`` when every
+    """Check 2 (paper §IV.C). Returns ``True`` when every
     replaced node's attribute string was observed for that node type in
-    ``type_attrs``. Reported for logging; not used to reject mutations on
-    its own."""
+    ``type_attrs``."""
     from .semantic_mutation import _get_properties
 
     if not type_attrs:
@@ -118,7 +115,7 @@ def check_attribute_feasibility(
 
 
 def check_imperceptibility(g_mut, replaced_nodes: Set[int]) -> bool:
-    """Hard check (paper §IV.C, check 3). Rejects any mutation whose boundary
+    """Check 3 (paper §IV.C). Rejects any mutation whose boundary
     introduces a user-visible action that a human observer would notice."""
     for e_idx in range(g_mut.ecount()):
         e = g_mut.es[e_idx]
@@ -133,7 +130,7 @@ def check_imperceptibility(g_mut, replaced_nodes: Set[int]) -> bool:
 
 
 def check_hardness(g_mut, g_anchor, delta_h: float = 0.3, delta_h_upper: float = 0.95) -> bool:
-    """Hard check (paper §IV.C, check 4). Rejects mutations whose WL
+    """Check 4 (paper §IV.C). Rejects mutations whose WL
     similarity to the anchor falls outside ``[delta_h, delta_h_upper]``."""
     from .subgraph_retrieval import wl_kernel
     sim = wl_kernel(g_mut, g_anchor, h=3)
@@ -149,8 +146,7 @@ def verify_mutation(
     delta_h: float = 0.3,
     delta_h_upper: float = 0.95,
 ) -> Tuple[bool, List[str]]:
-    """Run all four checks. Returns ``(passed, failed_checks)``; only the two
-    hard checks (imperceptibility, hardness) gate admission."""
+    """Run all four checks. Returns ``(passed, failed_checks)``."""
     failed: List[str] = []
 
     if not check_operation_legality(g_mut, replaced_nodes, entity_ops):
@@ -162,5 +158,4 @@ def verify_mutation(
     if not check_hardness(g_mut, g_anchor, delta_h=delta_h, delta_h_upper=delta_h_upper):
         failed.append("hardness")
 
-    hard_failed = [f for f in failed if f in ("imperceptibility", "hardness")]
-    return len(hard_failed) == 0, failed
+    return len(failed) == 0, failed

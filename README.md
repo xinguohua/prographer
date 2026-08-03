@@ -61,10 +61,10 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 
 ## Released Labels (supp G.1)
 
-`data/annotated_labels/` contains manually verified malicious-entity labels and ATT&CK technique labels for DARPA E3, DARPA E5, OpTC, and ATLAS, annotated by three doctoral researchers in system security based on the official attack reports. The labels are used for supervised training and metric computation; interpretation consumes detector outputs by default.
+`data/annotated_labels/` contains the released malicious-entity labels for the artifact scenes. The normalized UUID → ATT&CK technique/tactic JSON files are currently released for DARPA E3 scenes; other datasets can be evaluated by adding technique-label files under the same schema. The labels are used for supervised training and metric computation; interpretation consumes detector outputs by default.
 
 - `<dataset>/malicious_entities/` — released malicious entity labels per scene. Text files contain one CDM-record UUID per line; CSV files use `actorID` / `objectID` columns. These labels are consumed by `src/detection/node_labels.py` for supervised metrics and by the dataset parsers through `collect_label_paths`.
-- `<dataset>/attack_techniques/` — per-scene UUID → parent-level MITRE ATT&CK technique + tactic mapping.
+- `<dataset>/attack_techniques/` — per-scene UUID → parent-level MITRE ATT&CK technique + tactic mapping where released. The repository includes normalized JSON files for DARPA E3; ATLAS `groundtruth.txt` is retained as an event-level source table, not as a normalized UUID → technique mapping.
 
 ## ATT&CK Knowledge Base (supp G.2 v)
 
@@ -98,11 +98,14 @@ python scripts/run_detection.py      --config configs/athena.yaml --dataset cade
 # Interpretation (paper §IV.E): consumes detector positives, not ground truth
 python scripts/run_interpretation.py --config configs/athena.yaml --dataset cadets \
   --detections outputs/detection_predictions.json
+
+# Artifact structure check
+python scripts/validate_artifact.py
 ```
 
 Supported `--dataset` values: `cadets, theia, trace, clearscope` (DARPA E3); `cadets5, theia5, trace5, clearscope5` (DARPA E5); `optcday1` (OpTC day 1); `atlas` (ATLAS). The released label directory contains the scene files used by the artifact tables; additional local scenes can be evaluated by adding matching malicious-entity and ATT&CK label files under `data/annotated_labels/`.
 
-Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--model <key>` on augmentation to select one of the LLM configurations; `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's chronological protocol by default: snapshots are kept in construction order, each benign/attack block is split by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out test snapshots. If `outputs/augmented_graphs/manifest.json` exists, admitted augmented graphs are loaded as contrastive hard negatives through the encoder's mutation map; the output JSON records the augmentation manifest and loaded graph count. `train_metrics` and the exact snapshot split are included for auditability.
+Optional flags: `--scene <name>` to filter a specific scene (e.g. `cadets314`); `--model <key>` on augmentation to select one of the LLM configurations; `--epochs N` and `--max-snapshots N` to constrain runs. The detection script follows the paper's chronological protocol by default: snapshots are kept in construction order, each benign/attack block is split by `detection.train_ratio`, the encoder and MLP are trained only on training snapshots, and `metrics` in the output JSON are computed on held-out test snapshots. If `outputs/augmented_graphs/manifest.json` exists, admitted augmented graphs are loaded as contrastive hard negatives through the encoder's mutation map; the output JSON records the augmentation manifest, loaded graph count, encoder configuration, train metrics, and exact snapshot split. The interpretation script consumes held-out detector positives by default; `--include-train-detections` is available only for artifact debugging.
 
 ## Configuration
 
@@ -130,6 +133,7 @@ Defaults in `configs/athena.yaml` match the artifact configuration used by the r
 | retry budget | unified-verification retry limit | 3 | augmentation |
 | δ_h | WL similarity range (hardness check) | [0.30, 0.95] | augmentation |
 | γ | mapping confidence cutoff | 0.50 | interpretation |
+| temporal | GRU temporal encoder | enabled | detection |
 | train ratio | chronological detector training split | 0.70 | detection |
 | T_max | tactic queue retention window | 7 days | interpretation |
 | LCS/min | sequence-alignment cutoff | 0.60 | interpretation |
