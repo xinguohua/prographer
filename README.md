@@ -61,10 +61,21 @@ Raw audit logs themselves are not redistributed here; consult each dataset's lic
 
 ## Released Labels (supp G.1)
 
-`data/annotated_labels/` contains the released malicious-entity labels for the artifact scenes. The normalized UUID → ATT&CK technique/tactic JSON files are currently released for DARPA E3 scenes; other datasets can be evaluated by adding technique-label files under the same schema. The labels are used for supervised training and metric computation; interpretation consumes detector outputs by default.
+`data/annotated_labels/` contains the released malicious-entity labels for the artifact scenes across DARPA E3, DARPA E5, OpTC, and ATLAS. The labels are used for supervised training and metric computation; interpretation consumes detector outputs by default.
 
 - `<dataset>/malicious_entities/` — released malicious entity labels per scene. Text files contain one CDM-record UUID per line; CSV files use `actorID` / `objectID` columns. These labels are consumed by `src/detection/node_labels.py` for supervised metrics and by the dataset parsers through `collect_label_paths`.
 - `<dataset>/attack_techniques/` — per-scene UUID → parent-level MITRE ATT&CK technique + tactic mapping where released. The repository includes normalized JSON files for DARPA E3; ATLAS `groundtruth.txt` is retained as an event-level source table, not as a normalized UUID → technique mapping.
+
+The normalized malicious-entity labels can be regenerated from the public/local
+ground-truth sources used in the artifact:
+
+```bash
+python scripts/import_ground_truth_labels.py \
+  --orthrus-root /path/to/OrTHRUS/Ground_Truth/orthrus \
+  --optc-tasks-zip /path/to/optc-labels/tasks/tasks.zip
+```
+
+The OpTC importer consumes the public `AT03380/optc-labels` analyst tasks and writes per-host `host_*.txt` files. The OrTHRUS importer consumes the DARPA E5 and ATLAS malicious-entity CSVs and writes one UUID-per-line files under the same schema.
 
 ## ATT&CK Knowledge Base (supp G.2 v)
 

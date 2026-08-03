@@ -37,7 +37,7 @@ DATASET_SCENE_PREFIX = {
     "trace5": ("trace",),
     "clearscope5": ("clearscope",),
     "optcday1": ("host_",),
-    "atlas": ("M",),
+    "atlas": ("M", "h1_", "edr_"),
 }
 
 

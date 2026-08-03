@@ -10,6 +10,12 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+LABEL_MIN_COUNTS = {
+    "darpa_e3": 4,
+    "darpa_e5": 8,
+    "optc": 3,
+    "atlas": 2,
+}
 
 
 def _exists(path: Path) -> bool:
@@ -39,6 +45,12 @@ def main() -> int:
     technique_json = sorted(label_root.glob("*/attack_techniques/*.json"))
     checks.append(("malicious entity label directories", bool(malicious_dirs)))
     checks.append(("normalized attack_techniques JSON files", bool(technique_json)))
+    malicious_counts = {}
+    for dataset, min_count in LABEL_MIN_COUNTS.items():
+        files = sorted((label_root / dataset / "malicious_entities").glob("*"))
+        files = [p for p in files if p.is_file() and p.stat().st_size > 0]
+        malicious_counts[dataset] = len(files)
+        checks.append((f"{dataset} malicious entity labels >= {min_count}", len(files) >= min_count))
 
     e3_json = sorted((label_root / "darpa_e3" / "attack_techniques").glob("*.json"))
     checks.append(("DARPA E3 normalized technique JSON", bool(e3_json)))
@@ -56,6 +68,7 @@ def main() -> int:
         "checks": [{"name": name, "passed": passed} for name, passed in checks],
         "attack_sequence_count": seq_count,
         "malicious_label_dirs": [str(p.relative_to(REPO_ROOT)) for p in malicious_dirs],
+        "malicious_label_file_counts": malicious_counts,
         "normalized_technique_json": [str(p.relative_to(REPO_ROOT)) for p in technique_json],
     }, indent=2))
     return 0 if all(passed for _name, passed in checks) else 1
