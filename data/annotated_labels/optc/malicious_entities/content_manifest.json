@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "record_type": "pidsmaker_malicious_entity_registry",
+  "dataset": "optc",
+  "source_repository": "https://github.com/ubc-provenance/PIDSMaker.git",
+  "source_commit": "32602734bc9f896be5fc0f03f0a185c967cd6624",
+  "source_license": {
+    "path": "LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  "converter": {
+    "path": "scripts/import_ground_truth_labels.py",
+    "sha256": "9d8d45087acf914b81d5ec4885a4dfad53a14dff069c52d74dd496381c439703"
+  },
+  "sources": [
+    {
+      "source_path": "Ground_Truth/orthrus/h051/node_h051_0925.csv",
+      "source_sha256": "ff8af2562c6746b48f81445fa36a5860ebd9a4402fa6b83cd47ddda35bfdeb3b",
+      "record_count": 114,
+      "attack_id": "optc-h051-2019-09-25",
+      "host_id": "H051",
+      "raw_host": "SysClient0051",
+      "attack_window_local": [
+        "2019-09-25 10:29:00",
+        "2019-09-25 14:25:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "host_0051.txt",
+      "output_sha256": "7fd210cec4c617540e78616cfbdbdd60e64665e9f3d015e4d097fd9d68eb24f3"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/h201/node_h201_0923.csv",
+      "source_sha256": "b43c03d547b8d00b27a7b6faee6efdec4d4dcb47d992419147ce80363ad26d0e",
+      "record_count": 2905,
+      "attack_id": "optc-h201-2019-09-23",
+      "host_id": "H201",
+      "raw_host": "SysClient0201",
+      "attack_window_local": [
+        "2019-09-23 11:23:00",
+        "2019-09-23 13:25:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "host_0201.txt",
+      "output_sha256": "df503efd126be1dd0267b5d938a516307f7b14d94670fa60d49d600cae71eb4b"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/h501/node_h501_0924.csv",
+      "source_sha256": "16ed69a63742431d35bed1ca3ff27a314a21c3ef673eaaf6a346b1410abd5a42",
+      "record_count": 749,
+      "attack_id": "optc-h501-2019-09-24",
+      "host_id": "H501",
+      "raw_host": "SysClient0501",
+      "attack_window_local": [
+        "2019-09-24 10:28:00",
+        "2019-09-24 15:29:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "host_0501.txt",
+      "output_sha256": "bc5201defdcef0405bc42ca30df6cb5c5e8274a3429cfbd2947f7b28ad3136f2"
+    }
+  ],
+  "entity_records": {
+    "path": "entities.jsonl",
+    "count": 3768,
+    "sha256": "5dd1828e198d92ea53a9d5fc3fa4ef443d819554a16206e8cc5664655e86962a"
+  },
+  "output_files": [
+    {
+      "path": "host_0051.txt",
+      "sha256": "7fd210cec4c617540e78616cfbdbdd60e64665e9f3d015e4d097fd9d68eb24f3",
+      "count": 114
+    },
+    {
+      "path": "host_0201.txt",
+      "sha256": "df503efd126be1dd0267b5d938a516307f7b14d94670fa60d49d600cae71eb4b",
+      "count": 2905
+    },
+    {
+      "path": "host_0501.txt",
+      "sha256": "bc5201defdcef0405bc42ca30df6cb5c5e8274a3429cfbd2947f7b28ad3136f2",
+      "count": 749
+    }
+  ],
+  "aggregate_sha256": "52d1f2182855a418166de71275c87118baa6091f28c1e1c27614fe52eaa521d3"
+}

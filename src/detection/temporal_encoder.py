@@ -1,53 +1,56 @@
-"""Paper §IV.D - Per-layer GRU temporal encoder.
+"""Snapshot-level temporal node encoder from paper Eq. (4).
 
-Maintains one GRUCell per GIN layer and a name-keyed hidden-state table so
-that a node's representation can persist across time-windowed snapshots even
-when the node-set changes between windows.
+The GIN first produces one instantaneous representation per node for the
+current snapshot. A single GRU cell fuses that final-layer vector with the
+same entity's previous state. State is committed once per entity and snapshot.
 """
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Mapping, Optional
 
 import torch
 import torch.nn as nn
 
 
-class TemporalPerLayer(nn.Module):
-    def __init__(self, layer_dims: List[int]):
+class TemporalNodeEncoder(nn.Module):
+    """Name-keyed GRU state over final-layer GIN representations."""
+
+    def __init__(self, embedding_dim: int):
         super().__init__()
-        self.layer_dims = [int(d) for d in layer_dims]
-        self.cells = nn.ModuleList([nn.GRUCell(d, d) for d in self.layer_dims])
-        # One name-keyed hidden state table per layer.
-        self.tables: List[Dict[str, torch.Tensor]] = [dict() for _ in self.layer_dims]
+        self.embedding_dim = int(embedding_dim)
+        self.cell = nn.GRUCell(self.embedding_dim, self.embedding_dim)
+        self.table: Dict[str, torch.Tensor] = {}
 
-    def reset(self):
-        for t in self.tables:
-            t.clear()
+    def reset(self) -> None:
+        self.table.clear()
 
-    def fetch(self, node_ids: List[str], device: torch.device) -> List[torch.Tensor]:
-        """Look up previous hidden states for ``node_ids`` at every layer;
-        nodes not yet seen get a zero state."""
-        H_prev: List[torch.Tensor] = []
-        n = len(node_ids)
-        for li, dim in enumerate(self.layer_dims):
-            table = self.tables[li]
-            H = torch.zeros((n, dim), dtype=torch.float32, device=device)
-            for i, nid in enumerate(node_ids):
-                if nid in table:
-                    H[i] = table[nid].to(device)
-            H_prev.append(H)
-        return H_prev
+    def fetch(
+        self,
+        node_ids: List[str],
+        device: torch.device,
+        table: Optional[Mapping[str, torch.Tensor]] = None,
+    ) -> torch.Tensor:
+        """Fetch state from the live table or an immutable time-point copy."""
+        source = self.table if table is None else table
+        previous = torch.zeros(
+            (len(node_ids), self.embedding_dim),
+            dtype=torch.float32,
+            device=device,
+        )
+        for index, node_id in enumerate(node_ids):
+            stored = source.get(str(node_id))
+            if stored is not None:
+                previous[index] = stored.to(device)
+        return previous
 
-    def forward(self, Z_list: List[torch.Tensor], H_prev: List[torch.Tensor]) -> List[torch.Tensor]:
-        H_list: List[torch.Tensor] = []
-        for li, cell in enumerate(self.cells):
-            h1 = cell(Z_list[li], H_prev[li])
-            H_list.append(h1)
-        return H_list
+    def forward(self, instantaneous: torch.Tensor, previous: torch.Tensor) -> torch.Tensor:
+        return self.cell(instantaneous, previous)
 
-    def commit(self, node_ids: List[str], H_list: List[torch.Tensor]):
-        """Persist the new hidden states for ``node_ids`` into the per-layer tables."""
-        for li in range(min(len(self.tables), len(H_list))):
-            table = self.tables[li]
-            Hl = H_list[li]
-            for i, nid in enumerate(node_ids):
-                table[nid] = Hl[i].detach().to('cpu').contiguous()
+    def commit(self, node_ids: List[str], hidden: torch.Tensor) -> None:
+        if hidden.size(0) != len(node_ids):
+            raise ValueError("node_ids and hidden state have different lengths")
+        for index, node_id in enumerate(node_ids):
+            self.table[str(node_id)] = hidden[index].detach().cpu().contiguous()
+
+    def snapshot(self) -> Dict[str, torch.Tensor]:
+        """Return a detached copy for same-time alternative graph encodings."""
+        return {key: value.detach().clone() for key, value in self.table.items()}

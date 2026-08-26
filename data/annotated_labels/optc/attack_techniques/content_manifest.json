@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "dataset": "optcday1",
+  "annotation_count": 27,
+  "annotation_status": "final_high_confidence",
+  "source_repository": "https://github.com/AT03380/optc-labels.git",
+  "source_commit": "64c9f9b2e1a15bf3c2789d89d93dc0724cb0d4fa",
+  "source_archives": {
+    "tasks/tasks.zip": "b8ddd6d2d82ebbdc637f158cb7e7537c808ddd6968079653405844e1efc83c77",
+    "labels/malicious.zip": "9feb73e29c07fd41bbe5670c111bd396bc101991beb39ca3721ddf6565650c2a"
+  },
+  "attack_taxonomy": {
+    "path": "data/attack_knowledge/mitre_attack/technique_to_tactic.json",
+    "sha256": "6658c7d3fb66b72aa19c6377c902de4a29dcfd77e3e942d4996a0a21f3e9f482"
+  },
+  "inputs": {
+    "candidate_jsonl_sha256": "46e303381136a4117d4c895ffedc9ef0568441e603d3dfa7839e950c413a029c"
+  },
+  "outputs": {
+    "source_records.jsonl": "1e0391c2821e25954e85b720de2d3ae082ced2a4b169872d138880482d072a72",
+    "source_linked_annotations.jsonl": "980b905de0ad64406f44f64ef979d4f78481a675f7dd967ef24421ad0cd76d55",
+    "mapping_records.jsonl": "ff60e657359ed5331377b415a5d0264bc534107ee3dbcb93358771aed82097ff"
+  },
+  "converter": {
+    "path": "scripts/import_optc_attack_annotations.py",
+    "sha256": "ec9053019de76713b6e866232ecd902ed2b21e1bafa6490877b01e45870e6e97"
+  },
+  "aggregate_sha256": "66ef507bbc4d2cc17818968fe3c4193f16f2c6169a0a9c0f9a5be5ff079950a2"
+}

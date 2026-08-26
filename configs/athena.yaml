@@ -3,7 +3,7 @@
 # Paths section: replace each <DATASET_ROOT> placeholder with the absolute
 # path to your unpacked dataset directory before running any script. The keys
 # here match the dataset names accepted by `--dataset` (cadets, theia, trace,
-# clearscope, cadets5, theia5, trace5, clearscope5, atlas, optcday1).
+# clearscope, cadets5, theia5, trace5, clearscope5, optcday1).
 
 paths:
   theia:      <DARPA_E3_THEIA_ROOT>
@@ -14,23 +14,12 @@ paths:
   theia5:     <DARPA_E5_THEIA_ROOT>
   trace5:     <DARPA_E5_TRACE_ROOT>
   clearscope5: <DARPA_E5_CLEARSCOPE_ROOT>
-  atlas:      <ATLAS_ROOT>
   optcday1:   <OPTC_DAY1_ROOT>
+  atlas:
+    root: <ATLAS_V1_ROOT>
+    source_timezone: "-05:00"
 
-# Snapshot construction (Paper §IV.A).
-snapshot:
-  malicious_window_minutes: 10   # T_mal — labelled window around each malicious event
-  test_window_minutes:      20   # T_test — eval split window
-  snapshot_size:            500  # legacy fallback only; normal construction uses 1-min windows
-  forgetting_rate:          0.2  # rate at which old nodes are evicted
-
-# Snapshot sequence assembly (Paper §IV.A → §IV.D input).
-sequence:
-  length:                12   # L — sequence length seen by the GRU temporal encoder
-  min_length:            3    # MIN_SEQUENCE_LENGTH — minimum when fewer snapshots are available
-  adapt_ratio:           0.5  # fallback ratio = snapshot_count * adapt_ratio
-
-# Typed-GIN node encoder (Paper §IV.D).
+# GIN node encoder (Paper §IV.D).
 gin:
   num_layers:   3
   hidden_dim:   64    # D — embedding dimension (Supp D)
@@ -41,19 +30,21 @@ gin:
 # LLM-guided augmentation (Paper §IV.B / §IV.C; Supp A–C).
 augmentation:
   top_k:           5    # WL retrieval — number of attack candidates per benign anchor
-  top_m:           3    # per-anchor number of mutated variants kept
   max_retries:     3    # retry budget for candidates that fail unified verification
+  edge_candidate_batch_size: 32 # deterministic candidate-count safety cap
+  edge_prompt_char_budget: 8800 # conservative fallback budget for 4096-token local serving
+  semantic_prompt_char_budget: 8800
+  graph_unit_cache_size: 32 # bounded lazy r-hop unit materialization
   delta_h_lower:   0.30 # WL similarity lower bound (Paper §IV.C, check 4)
-  delta_h_upper:   0.95 # WL similarity upper bound
-  max_region_size: 32   # cap on aligned region size
 
 # Contrastive learning (Paper §IV.D).
 contrastive:
   temperature:     0.07
-  hard_weight:     2.0  # weight multiplier for hard-mined negatives
+  beta:            2.0  # HCL focusing intensity in Proof Eq. (5)
 
 # Detection head (Paper §IV.D).
 detection:
+  seed:            42
   mlp_hidden:      256
   epochs:          3
   use_temporal:    true
@@ -63,52 +54,94 @@ detection:
 # Global attack interpretation (Paper §IV.E; Supp G.2 v).
 interpretation:
   sentence_bert_model: all-MiniLM-L12-v2
-  topk_candidates:     10
+  attack_sequence_records: data/attack_knowledge/attackseqbench/verified_sequences.jsonl
+  topk_candidates:     5
+  lambda_hops:          4     # bounded causal-path fallback for an isolated malicious node
+  # Deterministic engineering budgets for path enumeration; truncation is
+  # recorded in every interpretation decision and never reported silently.
+  max_causal_paths_per_peer: 1024
+  max_causal_paths_per_alert: 4096
+  max_causal_path_expansions: 100000
   gamma:               0.50  # confidence threshold below which a mapping is Unmapped
   tactic_queue_retention_days: 7
   lcs_min_ratio:       0.60  # full-chain tactic match cutoff after Eq. (8) local LCS
 
 # LLM configuration (Supp E). Per-model settings live in this map; runtime
-# selects a row by `name` and reads the rest. The API key itself is read from
-# the gitignored `local_settings.py`.
+# selects a row by `name` and reads credentials only from that profile's
+# declared api_key_env environment variable.
 llm:
   default: gpt-4o
   models:
     gpt-4o:
-      version: gpt-4o-2024-11-20
+      provider: openai
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      served_model: gpt-4o-2024-11-20
+      precision: hosted
       temperature: 0.2
       top_p: 0.95
-      selection_max_tokens: 512
       mutation_max_tokens: 1024
+      context_window: 128000
       stop_tokens: ["\n\n"]
+      pricing:
+        as_of: "2024-11-20"
+        input_per_million_usd: 2.50
+        output_per_million_usd: 10.00
     qwen2.5-7b:
-      version: Qwen2.5-7B-Instruct
+      provider: local-vllm
+      base_url: http://127.0.0.1:8000/v1
+      api_key_env: VLLM_API_KEY
+      api_key_optional: true
+      served_model: Qwen/Qwen2.5-7B-Instruct
+      precision: bfloat16
       temperature: 0.2
       top_p: 0.95
       top_k: 40
-      selection_max_tokens: 512
       mutation_max_tokens: 1024
+      context_window: 4096
       stop_tokens: ["<|im_end|>"]
+      pricing: {input_per_million_usd: 0.0, output_per_million_usd: 0.0}
     qwen2.5-14b:
-      version: Qwen2.5-14B-Instruct
+      provider: local-vllm
+      base_url: http://127.0.0.1:8000/v1
+      api_key_env: VLLM_API_KEY
+      api_key_optional: true
+      served_model: Qwen/Qwen2.5-14B-Instruct-AWQ
+      precision: awq-int4
       temperature: 0.2
       top_p: 0.95
       top_k: 40
-      selection_max_tokens: 512
       mutation_max_tokens: 1024
+      context_window: 4096
       stop_tokens: ["<|im_end|>"]
+      pricing: {input_per_million_usd: 0.0, output_per_million_usd: 0.0}
     deepseek-v3:
-      version: DeepSeek-V3-0324
+      provider: deepseek
+      base_url_env: DEEPSEEK_V3_BASE_URL
+      api_key_env: DEEPSEEK_API_KEY
+      served_model_env: DEEPSEEK_V3_MODEL_ID
+      display_model: DeepSeek-V3-0324
+      precision: hosted
       temperature: 0.2
       top_p: 0.95
-      selection_max_tokens: 512
       mutation_max_tokens: 1024
+      context_window: 64000
       stop_tokens: ["\n\n"]
+      pricing:
+        as_of: "2025-03-24"
+        input_per_million_usd: 0.27
+        output_per_million_usd: 1.10
     glm-4:
-      version: glm-4-9b-chat
+      provider: local-vllm
+      base_url: http://127.0.0.1:8000/v1
+      api_key_env: VLLM_API_KEY
+      api_key_optional: true
+      served_model: THUDM/glm-4-9b-chat
+      precision: bfloat16
       temperature: 0.2
       top_p: 0.95
       top_k: 40
-      selection_max_tokens: 512
       mutation_max_tokens: 1024
+      context_window: 4096
       stop_tokens: ["<|user|>"]
+      pricing: {input_per_million_usd: 0.0, output_per_million_usd: 0.0}

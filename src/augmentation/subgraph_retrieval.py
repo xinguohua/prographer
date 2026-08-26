@@ -1,15 +1,16 @@
-"""
-Weisfeiler-Leman subtree kernel implementation
+"""Weisfeiler--Lehman subtree-kernel retrieval (Proof Eq. (1)).
 
-fortwo igraph graph's similarity (paperformula 4) . 
-useclass (process/file/socket) , class (read/write/exec/fork/connect) 
-andnodeattribute (process, commandrowparameter, filepath, fardegreely) isinitiallabel. 
+Initial node labels combine entity type with snapshot-local semantic
+attributes; edge labels retain the audited operation.  The normalized kernel
+is used to rank attack graph units for a benign anchor.
 """
 from __future__ import annotations
 from collections import Counter
 from typing import List, Optional
 import hashlib
 import math
+
+from .property_adapter import property_values, semantic_summary, typed_fields
 
 try:
     import igraph as ig
@@ -18,83 +19,52 @@ except ImportError:
 
 
 def _node_initial_label(g, v_idx: int) -> str:
-    """nodeinitiallabel: entity_type + degreeattribute (from properties take) . 
-
-    name is UUID (graphnot) , mustuse properties takesemanticinfo. 
-    properties : process='cmdLine,tgid,path', file='filepath', ='srcaddr,srcport,dstaddr,dstport'. 
-    """
+    """Return an entity-type/attribute label without using the UUID name."""
     attrs = g. vs [v_idx].attributes()
     entity_type = str(attrs.get("type", "UNK")).lower()
-    raw_prop = str(attrs.get("properties", ""))
+    raw_prop = attrs.get("properties", "")
 
-    #  str(set(...)) : take1meta
-    prop = raw_prop.strip()
-    if prop.startswith("{") and prop.endswith("}"):
-        prop = prop[1:-1].strip()
-        if prop.startswith("'") or prop.startswith('"'):
-            q = prop[0]
-            end = prop.find(q, 1)
-            if end > 0:
-                prop = prop[1:end]
-
-    # degree: from properties takehasdegree's semanticlabel
+    # Derive a coarse semantic label from the snapshot-local properties.
     if "process" in entity_type or "subject" in entity_type:
-        # process: from properties 's  cmdLine takecommand
-        cmd_line = prop.split(",")[0] if prop else ""
-        parts = cmd_line.split()
-        token = parts[0] if parts else "UNK"
-        # takecommand (pathprefixlike /usr/bin/) 
-        if "/" in token:
-            token = token.rstrip("/").rsplit("/", 1)[-1]
-        coarse = token[:16]
+        coarse = semantic_summary(raw_prop, entity_type, max_chars=128)
     elif "file" in entity_type:
-        # file: properties isfilepath, preservedirectorybefore 3 
-        fp = prop.strip("{ '\"}")
+        # Retain a coarse path prefix for file entities.
+        fields = typed_fields(raw_prop, entity_type)
+        paths = sorted(fields.get("properties.path", set()))
+        fp = paths[0] if paths else "UNK"
         segments = fp.split("/")[:4]
         coarse = "/".join(segments) if segments and segments[0] != "" else fp[:24]
     elif "net" in entity_type or "flow" in entity_type or "sock" in entity_type:
-        # : properties='srcaddr,srcport,dstaddr,dstport', take
-        parts = prop.strip("{ '\"}")  .split(",")
-        if len(parts) >= 4:
-            coarse = f"port:{parts[3].strip()}"
-        elif len(parts) >= 2:
-            coarse = f"port:{parts[1].strip()}"
-        else:
-            coarse = "net"
+        # Retain one normalized address for network entities.
+        fields = typed_fields(raw_prop, entity_type)
+        addresses = sorted(fields.get("properties.address", set()))
+        coarse = f"address:{addresses[0]}" if addresses else "net"
     else:
-        coarse = prop[:12] if prop else "UNK"
+        values = property_values(raw_prop)
+        coarse = values[0][:12] if values else "UNK"
 
     return f"{entity_type}|{coarse}"
 
 
 def _edge_label(g, e_idx: int) -> str:
-    """edgelabel: class"""
+    """Return the audited operation used as the WL edge label."""
     attrs = g.es[e_idx].attributes()
     return str(attrs.get("actions", "UNK"))
 
 
-def wl_subtree_labels(g, h: int = 3, max_nodes: int = 5000) -> List[Counter]:
-    """
-    row h  WL iteration, returneach's labelsquaregraphlist. 
-    largegraph (>max_nodes) timesamplenode, . 
+def wl_subtree_labels(g, h: int = 3) -> List[Counter]:
+    """Run ``h`` WL iterations and return one label histogram per round.
 
     Args:
-        g: igraph.Graph
-        h: WL iterationnumber
-        max_nodes: nodenumberexceedthis timesample
+        g: ``igraph.Graph`` to encode.
+        h: Number of WL refinement iterations.
 
     Returns:
-        List[Counter]: length h+1, each Counter is's labelfrequency
+        A list of ``h + 1`` label-frequency counters, including round zero.
     """
-    import random as _rng
     n = g.vcount()
     if n == 0:
         return [Counter() for _ in range(h + 1)]
-
-    if n > max_nodes:
-        sampled = sorted(_rng.sample(range(n), max_nodes))
-        g = g.subgraph(sampled)
-        n = g.vcount()
 
     labels = [_node_initial_label(g, i) for i in range(n)]
     histograms = [Counter(labels)]
@@ -119,17 +89,16 @@ def wl_subtree_labels(g, h: int = 3, max_nodes: int = 5000) -> List[Counter]:
 
 
 def wl_kernel(g1, g2, h: int = 3) -> float:
-    """
-    twograph's  WL subtree kernel  (normalizeinsideproduct) . 
+    """Return the normalized WL-subtree inner product for two graphs.
 
     K_WL(g1, g2) = sum_i <phi_i(g1), phi_i(g2)> / (||phi(g1)|| * ||phi(g2)||)
 
     Args:
-        g1, g2: igraph.Graph
-        h: WL iterationnumber
+        g1, g2: Graphs to compare.
+        h: Number of WL refinement iterations.
 
     Returns:
-        float: normalizesimilarity [0, 1]
+        Normalized similarity in ``[0, 1]``.
     """
     hist1 = wl_subtree_labels(g1, h)
     hist2 = wl_subtree_labels(g2, h)
@@ -154,7 +123,7 @@ def wl_kernel(g1, g2, h: int = 3) -> float:
 
 
 def _kernel_from_histograms(hist1, hist2) -> float:
-    """from's  WL histogram normalize kernel """
+    """Compute the normalized kernel from two WL histogram sequences."""
     dot = 0.0
     norm1_sq = 0.0
     norm2_sq = 0.0
@@ -173,33 +142,43 @@ def _kernel_from_histograms(hist1, hist2) -> float:
 
 def top_k_similar_attacks(benign_graph, attack_graphs: list, k: int = 5, h: int = 3,
                           _attack_hist_cache: dict = None) -> list:
-    """
-    fromattack graphsetinretrieveand benign_graph most similar's  Top-K attack graph (paperformula 4) . 
-    supportcachebyattack graph's  WL histogram. 
+    """Retrieve the top-``k`` attack units for a benign anchor (Proof Eq. (1)).
 
     Args:
-        benign_graph: anchorbenign graph
-        attack_graphs: note's attack graphset [(graph, snapshot_idx), ...]
-        k: returncount
-        h: WL iterationnumber
-        _attack_hist_cache: optional's attack graph histogram cache {snapshot_idx: histograms}
+        benign_graph: Benign anchor graph unit.
+        attack_graphs: Eager ``(graph, reference)`` pairs or a lazy graph-unit
+            collection exposing ``iter_refs`` and ``materialize``.
+        k: Maximum number of ranked references to return.
+        h: Number of WL refinement iterations.
+        _attack_hist_cache: Optional histogram cache keyed by reference.
 
     Returns:
-        [(graph, snapshot_idx, similarity), ...] similaritydescendingcolumn
+        ``(graph, reference, similarity)`` tuples in descending score order.
     """
     hist_b = wl_subtree_labels(benign_graph, h)
 
     scored = []
-    for ag, sidx in attack_graphs:
-        # priority first usecache's attack graph histogram
-        if _attack_hist_cache is not None and sidx in _attack_hist_cache:
-            hist_a = _attack_hist_cache[sidx]
+    lazy = hasattr(attack_graphs, "iter_refs") and hasattr(attack_graphs, "materialize")
+    source = ((None, ref) for ref in attack_graphs.iter_refs()) if lazy else iter(attack_graphs)
+    for ag, reference in source:
+        cache_key = getattr(reference, "key", reference)
+        # Reuse cached reference histograms when available.
+        if _attack_hist_cache is not None and cache_key in _attack_hist_cache:
+            hist_a = _attack_hist_cache[cache_key]
         else:
+            if ag is None:
+                ag = attack_graphs.materialize(reference)
             hist_a = wl_subtree_labels(ag, h)
             if _attack_hist_cache is not None:
-                _attack_hist_cache[sidx] = hist_a
+                _attack_hist_cache[cache_key] = hist_a
         sim = _kernel_from_histograms(hist_b, hist_a)
-        scored.append((ag, sidx, sim))
+        scored.append((None if lazy else ag, reference, sim))
 
     scored.sort(key=lambda x: -x[2])
-    return scored[:k]
+    selected = scored[:k]
+    if lazy:
+        selected = [
+            (ag if ag is not None else attack_graphs.materialize(reference), reference, sim)
+            for ag, reference, sim in selected
+        ]
+    return selected

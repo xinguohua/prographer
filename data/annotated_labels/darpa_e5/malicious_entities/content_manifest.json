@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "record_type": "pidsmaker_malicious_entity_registry",
+  "dataset": "darpa_e5",
+  "source_repository": "https://github.com/ubc-provenance/PIDSMaker.git",
+  "source_commit": "32602734bc9f896be5fc0f03f0a185c967cd6624",
+  "source_license": {
+    "path": "LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  "converter": {
+    "path": "scripts/import_ground_truth_labels.py",
+    "sha256": "9d8d45087acf914b81d5ec4885a4dfad53a14dff069c52d74dd496381c439703"
+  },
+  "sources": [
+    {
+      "source_path": "Ground_Truth/orthrus/E5-CADETS/node_Nginx_Drakon_APT.csv",
+      "source_sha256": "2e5327b94fef4751c9edc8f530b5ff6b5cea867ef403fff33280d2672fa42c07",
+      "record_count": 19,
+      "attack_id": "cadets-nginx-drakon-apt",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-16 09:31:00",
+        "2019-05-16 10:12:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "cadets_nginx_drakon_apt.txt",
+      "output_sha256": "cc7ec15b9024f87158ba44a478ec99e73cc0da9d60c1baa1c26948444aabe1b2"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-CADETS/node_Nginx_Drakon_APT_17.csv",
+      "source_sha256": "10c3d8f11aa11f53a1fefa7fb84519e5a7a52be31ba805a696bb92e034949918",
+      "record_count": 107,
+      "attack_id": "cadets-nginx-drakon-apt-17",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-17 10:15:00",
+        "2019-05-17 15:33:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "cadets_nginx_drakon_apt_17.txt",
+      "output_sha256": "e172fa668dc314cc188f948615bf4104ba64b43ae7702f386aaa79763d6d094b"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-THEIA/node_THEIA_1_Firefox_Drakon_APT_BinFmt_Elevate_Inject.csv",
+      "source_sha256": "f13984a6cbdb01039605a8aa6ed1ab735bb49258a1cb543ab42bc5f1f6cd8a9b",
+      "record_count": 70,
+      "attack_id": "theia-firefox-drakon-apt-binfmt-elevate-inject",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-15 14:47:00",
+        "2019-05-15 15:08:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "theia_firefox_drakon_apt_binfmt_elevate_inject.txt",
+      "output_sha256": "a314cedec3ded0ba3dd0572c26b71e1028ac66013c9812c800af0ea047502cb1"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-TRACE/node_Trace_Firefox_Drakon.csv",
+      "source_sha256": "1055e300e020c1c5fc149f3a0068e8c1f779775da807ee40f8205ab36d6dedcb",
+      "record_count": 71,
+      "attack_id": "trace-firefox-drakon",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-14 10:17:00",
+        "2019-05-14 11:45:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "trace_firefox_drakon.txt",
+      "output_sha256": "f352d19c1e6bdab6c15a9a08cbf2be937e4ab67dad4df016590a1025b7108d9a"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-CLEARSCOPE/node_clearscope_e5_appstarter_0515.csv",
+      "source_sha256": "6f2253b0eb68f15d856d4764b034786e4eb83c5c7457ad0dfb3d7a185de6fef6",
+      "record_count": 26,
+      "attack_id": "clearscope-appstarter-0515",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-15 15:38:00",
+        "2019-05-15 16:19:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "clearscope_appstarter_0515.txt",
+      "output_sha256": "83120a5674098176ca278c63cedd22f61b71381e08d38d9a139a293c9eba5a0c"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-CLEARSCOPE/node_clearscope_e5_firefox_0517.csv",
+      "source_sha256": "deece5b65d85b40731de0be60024bf578a2394d1353cb4bcc9c34b5790f0d3c2",
+      "record_count": 1,
+      "attack_id": "clearscope-firefox-0517",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": null,
+      "attack_window_timezone": "America/New_York",
+      "output": "clearscope_firefox_0517.txt",
+      "output_sha256": "4642f0c0dfbd12a5a5f6507429d96df24d099714528b47a96baf977d0819bf66"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-CLEARSCOPE/node_clearscope_e5_lockwatch_0517.csv",
+      "source_sha256": "cef24f7ae329961dceb328d9d022fa53623a8905c2a338bcf8c60b3c7e3f562e",
+      "record_count": 17,
+      "attack_id": "clearscope-lockwatch-0517",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-17 15:48:00",
+        "2019-05-17 16:01:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "clearscope_lockwatch_0517.txt",
+      "output_sha256": "55bf127de5cc0cfbcc1ec896c8697c564bbdfb0067f8ae7aa5ce15c09975e411"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-CLEARSCOPE/node_clearscope_e5_tester_0517.csv",
+      "source_sha256": "484fd8b9689a827c5c6c8dbcd6876954f37463823a6599f6da46dcfd4d2e8567",
+      "record_count": 8,
+      "attack_id": "clearscope-tester-0517",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-17 16:20:00",
+        "2019-05-17 16:28:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "clearscope_tester_0517.txt",
+      "output_sha256": "3b0a1b98d92429de65d5b82ad710a5c098acd0810730783e232b227c1eaa25c1"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-FIVEDIRECTIONS/node_fivedirections_e5_bits_0515.csv",
+      "source_sha256": "0841d453aff67c8254cc1d4a47265ed5cc0c8d7a79c1708ca0ab2019574b8cd4",
+      "record_count": 54,
+      "attack_id": "fivedirections-bits-0515",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-15 13:14:00",
+        "2019-05-15 13:35:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "fivedirections_bits_0515.txt",
+      "output_sha256": "654302573d1b98bcda4c8df7dcdf6b1d134c7ffbe9e924bd0733b96199fbd1ed"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-FIVEDIRECTIONS/node_fivedirections_e5_copykatz_0509.csv",
+      "source_sha256": "9ba7f64b45aacb670a395356c14bf2a2a992ce9fccffd6dda40065752e6130de",
+      "record_count": 87,
+      "attack_id": "fivedirections-copykatz-0509",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-09 13:25:00",
+        "2019-05-09 13:57:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "fivedirections_copykatz_0509.txt",
+      "output_sha256": "f94ab356a29098512712e83d689d4674203ca8885eaaadbab1f4dc0fd6a951ab"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-FIVEDIRECTIONS/node_fivedirections_e5_dns_0517.csv",
+      "source_sha256": "c4ca6910338afec0555128d15f00c9ff1bce80b44ffebfe39d84ab84f8b640e3",
+      "record_count": 11,
+      "attack_id": "fivedirections-dns-0517",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-17 12:46:00",
+        "2019-05-17 12:57:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "fivedirections_dns_0517.txt",
+      "output_sha256": "f3d3b6bdfaa70e1dfe9771cc0c384dc1898ce8d30b2ff6a6de946e9f73569606"
+    },
+    {
+      "source_path": "Ground_Truth/orthrus/E5-FIVEDIRECTIONS/node_fivedirections_e5_drakon_0517.csv",
+      "source_sha256": "bedd5adeda44654add866eb54752f87da2e71b8fb711018975dc015aef6e954f",
+      "record_count": 6,
+      "attack_id": "fivedirections-drakon-0517",
+      "host_id": null,
+      "raw_host": null,
+      "attack_window_local": [
+        "2019-05-17 16:10:00",
+        "2019-05-17 16:16:00"
+      ],
+      "attack_window_timezone": "America/New_York",
+      "output": "fivedirections_drakon_0517.txt",
+      "output_sha256": "8c81379179e15184634ccdc67cfcb4e0a6eca07cbc1150c7658acda96a3a6aa4"
+    }
+  ],
+  "entity_records": {
+    "path": "entities.jsonl",
+    "count": 477,
+    "sha256": "2791a6f4eec3ae3a5d4829d17245d9daf344b05d3c306fcb804c0e55ceb35fee"
+  },
+  "output_files": [
+    {
+      "path": "cadets_nginx_drakon_apt.txt",
+      "sha256": "cc7ec15b9024f87158ba44a478ec99e73cc0da9d60c1baa1c26948444aabe1b2",
+      "count": 19
+    },
+    {
+      "path": "cadets_nginx_drakon_apt_17.txt",
+      "sha256": "e172fa668dc314cc188f948615bf4104ba64b43ae7702f386aaa79763d6d094b",
+      "count": 107
+    },
+    {
+      "path": "clearscope_appstarter_0515.txt",
+      "sha256": "83120a5674098176ca278c63cedd22f61b71381e08d38d9a139a293c9eba5a0c",
+      "count": 26
+    },
+    {
+      "path": "clearscope_firefox_0517.txt",
+      "sha256": "4642f0c0dfbd12a5a5f6507429d96df24d099714528b47a96baf977d0819bf66",
+      "count": 1
+    },
+    {
+      "path": "clearscope_lockwatch_0517.txt",
+      "sha256": "55bf127de5cc0cfbcc1ec896c8697c564bbdfb0067f8ae7aa5ce15c09975e411",
+      "count": 17
+    },
+    {
+      "path": "clearscope_tester_0517.txt",
+      "sha256": "3b0a1b98d92429de65d5b82ad710a5c098acd0810730783e232b227c1eaa25c1",
+      "count": 8
+    },
+    {
+      "path": "fivedirections_bits_0515.txt",
+      "sha256": "654302573d1b98bcda4c8df7dcdf6b1d134c7ffbe9e924bd0733b96199fbd1ed",
+      "count": 54
+    },
+    {
+      "path": "fivedirections_copykatz_0509.txt",
+      "sha256": "f94ab356a29098512712e83d689d4674203ca8885eaaadbab1f4dc0fd6a951ab",
+      "count": 87
+    },
+    {
+      "path": "fivedirections_dns_0517.txt",
+      "sha256": "f3d3b6bdfaa70e1dfe9771cc0c384dc1898ce8d30b2ff6a6de946e9f73569606",
+      "count": 11
+    },
+    {
+      "path": "fivedirections_drakon_0517.txt",
+      "sha256": "8c81379179e15184634ccdc67cfcb4e0a6eca07cbc1150c7658acda96a3a6aa4",
+      "count": 6
+    },
+    {
+      "path": "theia_firefox_drakon_apt_binfmt_elevate_inject.txt",
+      "sha256": "a314cedec3ded0ba3dd0572c26b71e1028ac66013c9812c800af0ea047502cb1",
+      "count": 69
+    },
+    {
+      "path": "trace_firefox_drakon.txt",
+      "sha256": "f352d19c1e6bdab6c15a9a08cbf2be937e4ab67dad4df016590a1025b7108d9a",
+      "count": 71
+    }
+  ],
+  "aggregate_sha256": "f4cbf7e8ac0b2c47814073c696842658e1f1350f9e2f9dba2360eb61540b90d9"
+}

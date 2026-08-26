@@ -83,11 +83,14 @@ def snapshot_to_query(snapshot, *, node_scope: str = "malicious", max_nodes: int
     return ". ".join(triples) if triples else ""
 
 
-def path_edges_to_query(snapshot, key_path, max_edges: int = 80) -> str:
+def path_edges_to_query(snapshot, key_path, *, enhance_identifiers: bool = True) -> str:
     """Serialize extracted causal-path edges into ATT&CK matching text."""
     triples = []
     seen = set()
-    for src, dst, action in list(key_path)[:max_edges]:
+    for path_edge in key_path:
+        if len(path_edge) < 3:
+            continue
+        src, dst, action = path_edge[:3]
         try:
             src_attrs = snapshot.vs[int(src)].attributes()
             dst_attrs = snapshot.vs[int(dst)].attributes()
@@ -97,9 +100,14 @@ def path_edges_to_query(snapshot, key_path, max_edges: int = 80) -> str:
         dst_type = str(dst_attrs.get("type") or dst_attrs.get("type_name") or "entity")
         src_proc = _extract_process_name(str(src_attrs.get("properties") or ""))
         dst_proc = _extract_process_name(str(dst_attrs.get("properties") or ""))
-        subject = get_process_role(src_proc) if src_proc else TYPE_MAP.get(src_type, src_type.lower())
-        obj = get_process_role(dst_proc) if dst_proc else TYPE_MAP.get(dst_type, dst_type.lower())
-        translated = translate_event(str(action)) or str(action).lower()
+        if enhance_identifiers:
+            subject = get_process_role(src_proc) if src_proc else TYPE_MAP.get(src_type, src_type.lower())
+            obj = get_process_role(dst_proc) if dst_proc else TYPE_MAP.get(dst_type, dst_type.lower())
+            translated = translate_event(str(action)) or str(action).lower()
+        else:
+            subject = src_proc or src_type
+            obj = dst_proc or dst_type
+            translated = str(action).strip()
         triple = f"{subject} {translated} {obj}".strip()
         if triple and triple not in seen:
             seen.add(triple)

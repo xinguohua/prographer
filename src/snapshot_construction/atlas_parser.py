@@ -1,322 +1,447 @@
-import os.path
-import pandas as pd
-import igraph as ig
+"""ATLAS indexed-event loader with the original ten-fold scenario protocol.
+
+ATLAS defines four single-host scenarios (S1--S4) and six multi-host
+scenarios (M1--M6).  A requested fold loads every scenario in the same family;
+``src.utils.split`` then holds the requested scenario out and trains on the
+remaining three or five scenarios respectively.
+"""
+from __future__ import annotations
+
 import re
-from igraph import Graph
-from ._base import BaseProcessor
-from ._common import merge_properties, collect_dot_paths, collect_atlas_label_paths
-from ._type_enum import ObjectType
+import hashlib
+import json
+from pathlib import Path
 from typing import Optional
-class ATLASHandler(BaseProcessor):
-    #def __init__(self, base_path=None, train=True):
-    def __init__(self, base_path, train, *, scene_name: Optional[str] = None):
-        super().__init__(base_path, train)
 
-        self.graph_to_label = {}
-        self.all_netobj2pro = {}
-        self.all_subject2pro = {}
-        self.all_file2pro = {}
-        self.total_loaded_bytes = 0
+import igraph as ig
+import numpy as np
+import pandas as pd
 
-
-    def load(self):
-        """load ATLAS dataset. 
-        - trainmodulo: maliciouslabelpart
-        - testmodulo: preservehasdata
-        """
-        print("process ATLAS dataset...")
-        graph_files = collect_dot_paths(self.base_path)  # has .dot filepath
-        label_map = collect_atlas_label_paths(self.base_path)
-
-        self.all_labels.clear()
-        self.graph_to_label.clear()
-
-        def filter_bad_edges(df, labels):
-            """filtermaliciousedge"""
-            if not labels:
-                return df, len(df), len(df)
-            bad = set(labels)
-            before = len(df)
-            mask_bad = df.isin(bad).any(axis=1)
-            df_clean = df.loc[~mask_bad]
-            after = len(df_clean)
-            return df_clean, before, after
-
-        malicious_name = "M1-CVE-2015-5122_windows_h1"
-        benign_name = "M1-CVE-2015-5122_windows_h2"
-
-        for dot_file in graph_files:
-            dot_name = os.path.splitext(os.path.basename(dot_file))[0]
-            if dot_name not in [malicious_name, benign_name]:
-                continue
-            print(f"currentlyloadscene: {dot_name}")
-
-            if dot_name in label_map:
-                with open(label_map[dot_name], 'r', encoding='utf-8') as label_file:
-                    graph_labels = [line.strip() for line in label_file if line.strip()]
-                    self.graph_to_label[dot_name] = graph_labels
-            else:
-                if not self.train:
-                    print(f"  - warning: toscene '{dot_name}' 's labelfile. ")
+from ._base import BaseProcessor
+from .atlas_v1 import (
+    convert_official_case,
+    convert_preprocessed_file,
+    discover_official_cases,
+    discover_preprocessed_files,
+    host_from_name,
+    load_case_labels,
+    normalize_atlas_value,
+    resolve_case_label_ids,
+)
 
 
-            # parse .dot file -> DataFrame
-            netobj2pro, subject2pro, file2pro, dns, ips, conns, sess, webs = collect_nodes_from_log(dot_file)
-            dot_df= collect_edges_from_log(dot_file, dns, ips, conns, sess, webs, subject2pro, file2pro)
+ATLAS_SINGLE_FOLDS = ("S1", "S2", "S3", "S4")
+ATLAS_MULTI_FOLDS = ("M1", "M2", "M3", "M4", "M5", "M6")
+ATLAS_FOLDS = ATLAS_SINGLE_FOLDS + ATLAS_MULTI_FOLDS
 
-            if dot_name == benign_name:
-                df_begin, before, after = filter_bad_edges(dot_df, self.graph_to_label[dot_name])
-                print(f"  - benign graphall: {len(df_begin)} entryedge")
-                self.begin = df_begin
-            elif dot_name == malicious_name:
-                print(f"  - malicious graphall: {len(dot_df)} entryedge")
-                self.malicious = dot_df
-                self.all_labels.extend(self.graph_to_label[dot_name])
-
-            merge_properties(netobj2pro, self.all_netobj2pro)
-            merge_properties(subject2pro, self.all_subject2pro)
-            merge_properties(file2pro, self.all_file2pro)
-
-        self.all_labels = list(set(self.all_labels))
-        if not self.train:
-            print(f"to {len(self.all_labels)} only1maliciouslabel: {self.all_labels}")
-
-    def create_snapshots_from_graph(self, df, is_malicious):
-        snapshots = []
-        if df is None or len(df) == 0:
-            return []
-
-        sorted_df = df.sort_values(by='timestamp') if 'timestamp' in df.columns else df
-        chunks = []
-        if 'timestamp' in sorted_df.columns:
-            ts = pd.to_numeric(sorted_df['timestamp'], errors='coerce')
-            if ts.notna().any():
-                tmp = sorted_df.copy()
-                tmp['timestamp_dt'] = pd.to_datetime(ts, unit='s', errors='coerce')
-                if tmp['timestamp_dt'].isna().all():
-                    tmp['timestamp_dt'] = pd.to_datetime(ts, unit='ms', errors='coerce')
-                if not tmp['timestamp_dt'].isna().all():
-                    window = pd.Timedelta(minutes=1)
-                    t_min, t_max = tmp['timestamp_dt'].min(), tmp['timestamp_dt'].max()
-                    bins = pd.date_range(start=t_min, end=t_max + window, freq=window)
-                    chunks = [
-                        tmp[(tmp['timestamp_dt'] >= bins[i]) & (tmp['timestamp_dt'] < bins[i + 1])]
-                        for i in range(len(bins) - 1)
-                    ]
-        if not chunks:
-            snapshot_size = 100
-            chunks = [
-                sorted_df.iloc[start:start + snapshot_size]
-                for start in range(0, len(sorted_df), snapshot_size)
-            ]
-
-        for chunk in chunks:
-            if chunk.empty:
-                continue
-
-            # statisticin's nodefrequencyandclass (attribute frequency takeinsideappeartimenumber) 
-            node_freq = {}
-            node_type_map = {}
-            for _, row in chunk.iterrows():
-                actor_id, object_id = row["actorID"], row["objectID"]
-                node_freq[actor_id] = node_freq.get(actor_id, 0) + 1
-                node_freq[object_id] = node_freq.get(object_id, 0) + 1
-                node_type_map.setdefault(actor_id, row['actor_type'])
-                node_type_map.setdefault(object_id, row['object'])
-
-            g = ig.Graph(directed=True)
-            for node_id, freq in node_freq.items():
-                type_str = node_type_map.get(node_id, 'UNKNOWN')
-                try:
-                    type_enum = ObjectType[type_str]
-                    type_name = type_enum.name
-                except Exception:
-                    type_name = str(type_str)
-                g.add_vertex(
-                    name=node_id,
-                    type=type_name,
-                    properties=extract_properties(node_id, self.all_netobj2pro, self.all_subject2pro, self.all_file2pro),
-                    label=int(any(lbl in node_id for lbl in self.all_labels)),
-                    frequency=int(freq)
-                )
-
-            for _, row in chunk.iterrows():
-                actor_id, object_id = row["actorID"], row["objectID"]
-                action = row["action"]
-                timestamp = row.get("timestamp", 0)
-                try:
-                    a_idx = g. vs .find(name=actor_id).index
-                    o_idx = g. vs .find(name=object_id).index
-                    g.add_edge(a_idx, o_idx, actions=action, timestamp=timestamp)
-                except ValueError:
-                    continue
-
-            snapshots.append(g)
-
-        return snapshots
+_SCENARIO_RE = re.compile(r"(?<![A-Z0-9])([SM][1-6])(?![0-9])", re.IGNORECASE)
+_HOST_RE = re.compile(r"(?<![A-Z0-9])(H\d+|EDR)(?![A-Z0-9])", re.IGNORECASE)
 
 
-
-    def _retire_old_nodes(self, snapshot_size: int, forgetting_rate: float, node_timestamps: dict, cache_graph: Graph) -> None:
-        """thisfunctionnot"""
-        n_nodes_to_remove = int(snapshot_size * forgetting_rate)
-        if n_nodes_to_remove <= 0:
-            return
-        sorted_nodes = sorted(node_timestamps.items(), key=lambda item: item[1])
-        nodes_to_remove = [node_id for node_id, _ in sorted_nodes[:n_nodes_to_remove]]
-        try:
-            indices_to_remove = [cache_graph. vs .find(name=name).index for name in nodes_to_remove]
-            cache_graph.delete_vertices(indices_to_remove)
-        except ValueError:
-            pass
-        for node_id in nodes_to_remove:
-            if node_id in node_timestamps:
-                del node_timestamps[node_id]
-
-    def _generate_snapshot(self, cache_graph, snapshots) -> None:
-        snapshot = cache_graph.copy()
-        snapshots.append(snapshot)
-
-
-
-
-
-
-def collect_nodes_from_log(paths):  # dotfile's path
-    netobj2pro = {}
-    subject2pro = {}
-    file2pro = {}
-    domain_name_set = {}
-    ip_set = {}
-    connection_set = {}
-    session_set = {}
-    web_object_set = {}
-    nodes = []
-
-    with open(paths, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    statements = content.split(';')
-
-    node_pattern = re.compile(r'^\s*"?(.+?)"?\s*\[.*?type="?([^",\]]+)"?', re.IGNORECASE)
-
-    for stmt in statements:
-        if 'capacity=' in stmt:
-            continue  # skipcontains capacity field's paragraph
-        match = node_pattern.search(stmt)
+def atlas_scenario_from_path(path: Path) -> Optional[str]:
+    """Return the S/M scenario identifier encoded in a path."""
+    for value in (path.stem, *reversed(path.parts)):
+        match = _SCENARIO_RE.search(str(value).replace("_", "-"))
         if match:
-            node_name = match.group(1)
-            node_typen = match.group(2)
-            nodes.append((node_name, node_typen))
-    for node_name, node_typen in nodes:
-        node_id = node_name  # nodeid
-        node_type = node_typen  # typeattribute
-        if node_type == 'domain_name':
-            nodeproperty = node_id
-            netobj2pro[node_id] = nodeproperty
-            domain_name_set[node_id] = nodeproperty
-        if node_type == 'IP_Address':
-            nodeproperty = node_id
-            netobj2pro[node_id] = nodeproperty
-            ip_set[node_id] = nodeproperty
-        if node_type == 'connection':
-            nodeproperty = node_id
-            netobj2pro[node_id] = nodeproperty
-            connection_set[node_id] = nodeproperty
-        if node_type == 'session':
-            nodeproperty = node_id
-            netobj2pro[node_id] = nodeproperty
-            session_set[node_id] = nodeproperty
-        if node_type == 'web_object':
-            nodeproperty = node_id
-            netobj2pro[node_id] = nodeproperty
-            web_object_set[node_id] = nodeproperty
-        elif node_type == 'process':
-            nodeproperty = node_id
-            subject2pro[node_id] = nodeproperty
-        elif node_type == 'file':
-            nodeproperty = node_id
-            file2pro[node_id] = nodeproperty
-
-    return netobj2pro, subject2pro, file2pro, domain_name_set, ip_set, connection_set, session_set, web_object_set
+            scenario = match.group(1).upper()
+            if scenario in ATLAS_FOLDS:
+                return scenario
+    return None
 
 
-def collect_edges_from_log(paths, domain_name_set, ip_set, connection_set, session_set, web_object_set, subject2pro,
-                           file2pro) -> pd.DataFrame:
-    """
-    from DOT-like logfileintakecontains capacity 's edge, identify source/target innodeset. 
-    return1contains source, target, type, timestamp, source_type, target_type 's  DataFrame. 
-    """
+def atlas_host_from_path(path: Path) -> str:
+    for value in (path.stem, *reversed(path.parts)):
+        match = _HOST_RE.search(str(value).replace("_", "-"))
+        if match:
+            return match.group(1).upper()
+    return "H1"
 
-    edges = []
 
-    with open(paths, "r", encoding="utf-8") as f:
-        content = f.read()
+def _read_event_table(path: Path) -> pd.DataFrame:
+    sep = "\t" if path.suffix.lower() == ".tsv" else ","
+    frame = pd.read_csv(path, sep=sep, low_memory=False)
+    aliases = {
+        "actorid": "actorID",
+        "actor_type": "actor_type",
+        "objectid": "objectID",
+        "object": "object",
+        "object_type": "object",
+        "action": "action",
+        "timestamp": "timestamp",
+        "source_id": "actorID",
+        "source_type": "actor_type",
+        "destination_id": "objectID",
+        "destination_type": "object",
+        "edge_type": "action",
+        "time": "timestamp",
+        "time_unit": "timestamp_unit",
+        "timestampunit": "timestamp_unit",
+        "eventid": "event_id",
+        "command_line": "command",
+        "args": "arguments",
+        "file_path": "path",
+        "network_address": "address",
+    }
+    normalized = {str(column).strip().lower(): column for column in frame.columns}
+    renames = {}
+    for alias, target in aliases.items():
+        original = normalized.get(alias)
+        if original is not None and target not in frame.columns:
+            renames[original] = target
+    frame = frame.rename(columns=renames)
+    required = (
+        "actorID", "actor_type", "objectID", "object", "action", "timestamp", "timestamp_unit",
+    )
+    missing = [column for column in required if column not in frame.columns]
+    if missing:
+        raise ValueError(f"ATLAS event table {path} is missing columns: {missing}")
+    optional = (
+        "event_id", "command", "arguments", "path", "address",
+        "src_address", "src_port", "dst_address", "dst_port",
+    )
+    for column in optional:
+        if column not in frame.columns:
+            frame[column] = ""
+    frame = frame.loc[:, list(required) + list(optional)].copy()
+    for column in required[:-2] + optional:
+        frame[column] = frame[column].fillna("").astype(str).str.strip()
+    frame["timestamp_unit"] = frame["timestamp_unit"].fillna("").astype(str).str.strip().str.lower()
+    valid_units = {"s", "ms", "us", "ns"}
+    invalid_units = sorted(set(frame["timestamp_unit"]) - valid_units)
+    if invalid_units:
+        raise ValueError(f"ATLAS event table {path} has invalid timestamp_unit: {invalid_units}")
+    frame["timestamp"] = pd.to_numeric(frame["timestamp"], errors="coerce")
+    frame = frame.dropna(subset=["timestamp"])
+    frame = frame[(frame["actorID"] != "") & (frame["objectID"] != "")]
+    for index in range(len(frame)):
+        if not frame.iloc[index]["event_id"]:
+            payload = "\x1f".join(
+                [path.name, str(index), *map(str, frame.iloc[index][list(required)].tolist())]
+            )
+            frame.iat[index, frame.columns.get_loc("event_id")] = hashlib.sha256(
+                payload.encode("utf-8")
+            ).hexdigest()
+    if frame["event_id"].duplicated().any():
+        raise ValueError(f"ATLAS event table {path} contains duplicate event_id values")
+    return frame.reset_index(drop=True)
 
-    statements = content.split(";")
 
-    edge_pattern = re.compile(
-        r'"?([^"]+)"?\s*->\s*"?(.*?)"?\s*\['
-        r'.*?capacity=.*?'
-        r'type="?([^",\]]+)"?.*?'
-        r'timestamp=(\d+)',
-        re.IGNORECASE | re.DOTALL
+def _timestamp_seconds(values: pd.Series, units: pd.Series) -> pd.Series:
+    """Convert explicitly declared ATLAS timestamp units to seconds."""
+    numeric = pd.to_numeric(values, errors="coerce").astype(float)
+    scale = units.astype(str).str.lower().map({"s": 1.0, "ms": 1e3, "us": 1e6, "ns": 1e9})
+    if scale.isna().any():
+        raise ValueError("ATLAS timestamps require an explicit s/ms/us/ns unit")
+    return numeric / scale
+
+
+def _local_label_paths(root: Path, scenario: str) -> list[Path]:
+    scenario_root = root / scenario
+    paths = [scenario_root / "malicious_labels.txt"]
+    return [path for path in paths if path.is_file()]
+
+
+def _load_local_labels(root: Path, scenario: str) -> set[str]:
+    labels = set()
+    for path in _local_label_paths(root, scenario):
+        with path.open("r", encoding="utf-8", errors="ignore") as stream:
+            labels.update(line.strip().lower() for line in stream if line.strip())
+    return labels
+
+
+def _preprocessed_case_labels(root: Path, path: Path) -> tuple[Path, set[str]]:
+    name = path.name
+    case_name = name
+    for prefix in ("training_preprocessed_logs_", "testing_preprocessed_logs_"):
+        if name.startswith(prefix):
+            case_name = name[len(prefix):]
+            break
+    candidates = []
+    experiment_roots = [root, root / "paper_experiments"]
+    for ancestor in path.parents:
+        try:
+            ancestor.relative_to(root)
+        except ValueError:
+            continue
+        experiment_roots.append(ancestor)
+    for experiment_root in dict.fromkeys(experiment_roots):
+        for split_name in ("training_logs", "testing_logs"):
+            candidates.append(experiment_root / split_name / case_name)
+    for case_dir in candidates:
+        label_path = case_dir / "malicious_labels.txt"
+        if label_path.is_file():
+            return case_dir, load_case_labels(case_dir)
+    raise RuntimeError(
+        f"ATLAS preprocessed file {path} requires its same-case malicious_labels.txt"
     )
 
-    for stmt in statements:
-        if "capacity=" not in stmt:
-            continue
-        m = edge_pattern.search(stmt)
-        if m:
-            source, target, edge_type, ts = (x.strip() for x in m.groups())
 
-            # break source/target set
-            if source in domain_name_set:
-                source_type = "NETFLOW_OBJECT"
-            elif source in ip_set:
-                source_type = "NETFLOW_OBJECT"
-            elif source in connection_set:
-                source_type = "NETFLOW_OBJECT"
-            elif source in session_set:
-                source_type = "NETFLOW_OBJECT"
-            elif source in web_object_set:
-                source_type = "NetFlowObject"
-            elif source in subject2pro:
-                source_type = "SUBJECT_PROCESS"
-            elif source in file2pro:
-                source_type = "FILE_OBJECT_BLOCK"
+class ATLASHandler(BaseProcessor):
+    """Build one-minute ATHENA snapshots for one ATLAS leave-one-out fold."""
+
+    def __init__(
+        self,
+        base_path,
+        train,
+        *,
+        scene_name: Optional[str] = None,
+        dataset_name: str = "atlas",
+        source_timezone: str = "-05:00",
+    ):
+        super().__init__(base_path, train)
+        fold = str(scene_name or "").upper()
+        if fold not in ATLAS_FOLDS:
+            raise ValueError(
+                "ATLAS requires --scene set to one original fold: " + ", ".join(ATLAS_FOLDS)
+            )
+        self.dataset_name = dataset_name
+        self.source_timezone = str(source_timezone)
+        self.scene_name = fold
+        self.atlas_fold = fold
+        self.atlas_family = fold[0]
+        self.atlas_scenarios = ATLAS_SINGLE_FOLDS if fold.startswith("S") else ATLAS_MULTI_FOLDS
+        self.event_tables: dict[str, pd.DataFrame] = {}
+        self.scenario_labels: dict[str, set[str]] = {}
+        self.snapshot_scenarios: list[str] = []
+        self.snapshot_hosts: list[str] = []
+        self.label_coverage_audit: list[dict] = []
+
+    def load(self):
+        root = Path(self.base_path)
+        if not root.exists():
+            raise FileNotFoundError(f"ATLAS dataset root does not exist: {root}")
+        grouped: dict[str, list[pd.DataFrame]] = {scenario: [] for scenario in self.atlas_scenarios}
+        labels_by_scenario: dict[str, set[str]] = {scenario: set() for scenario in self.atlas_scenarios}
+        preprocessed_files = discover_preprocessed_files(root, self.atlas_scenarios)
+        official_cases = discover_official_cases(root, self.atlas_scenarios)
+        if preprocessed_files:
+            for path in preprocessed_files:
+                scenario = atlas_scenario_from_path(path)
+                if scenario not in grouped:
+                    continue
+                frame = convert_preprocessed_file(path)
+                frame["_atlas_scenario"] = scenario
+                frame["_atlas_host"] = atlas_host_from_path(path)
+                case_dir, source_labels = _preprocessed_case_labels(root, path)
+                resolved, audit = resolve_case_label_ids(case_dir, source_labels, frame)
+                endpoint_positive = frame["matched_labels"].astype(str).ne("[]")
+                suffix_positive = frame["malicious_event"].astype(bool)
+                labels_by_scenario[scenario].update(resolved)
+                audit.update({
+                    "scenario": scenario,
+                    "host": atlas_host_from_path(path),
+                    "case": path.name,
+                    "label_source": str(path),
+                    "label_mode": "official_normalized_endpoint_substring",
+                    "suffix_positive_events": int(suffix_positive.sum()),
+                    "endpoint_positive_events": int(endpoint_positive.sum()),
+                    "endpoint_only_positive_events": int(
+                        (endpoint_positive & ~suffix_positive).sum()
+                    ),
+                    "suffix_only_positive_events": int(
+                        (suffix_positive & ~endpoint_positive).sum()
+                    ),
+                })
+                self.label_coverage_audit.append(audit)
+                grouped[scenario].append(frame)
+        elif official_cases:
+            for case_dir in official_cases:
+                scenario = atlas_scenario_from_path(case_dir)
+                if scenario not in grouped:
+                    continue
+                frame = convert_official_case(case_dir, self.source_timezone)
+                frame["_atlas_scenario"] = scenario
+                frame["_atlas_host"] = host_from_name(case_dir)
+                source_labels = load_case_labels(case_dir)
+                resolved, audit = resolve_case_label_ids(case_dir, source_labels, frame)
+                audit.update({"scenario": scenario, "host": host_from_name(case_dir)})
+                self.label_coverage_audit.append(audit)
+                labels_by_scenario[scenario].update(resolved)
+                grouped[scenario].append(frame)
+        else:
+            for scenario in self.atlas_scenarios:
+                scenario_root = root / scenario
+                if not scenario_root.is_dir():
+                    continue
+                paths = sorted(scenario_root.glob("*_events.csv")) + sorted(
+                    scenario_root.glob("*_events.tsv")
+                )
+                for path in paths:
+                    frame = _read_event_table(path)
+                    if frame.empty:
+                        continue
+                    frame["_atlas_scenario"] = scenario
+                    frame["_atlas_host"] = atlas_host_from_path(path)
+                    grouped[scenario].append(frame)
+                labels_by_scenario[scenario].update(_load_local_labels(root, scenario))
+
+        missing = [scenario for scenario, parts in grouped.items() if not parts]
+        if missing:
+            raise RuntimeError(
+                f"ATLAS fold {self.atlas_fold} requires indexed event tables for "
+                f"{', '.join(self.atlas_scenarios)}; missing {', '.join(missing)}"
+            )
+
+        self.all_labels = []
+        for scenario in self.atlas_scenarios:
+            frame = pd.concat(grouped[scenario], ignore_index=True)
+            if frame["event_id"].duplicated().any():
+                raise RuntimeError(f"ATLAS scenario {scenario} contains duplicate event IDs")
+            self.event_tables[scenario] = frame
+            entities = {
+                normalize_atlas_value(value)
+                for value in set(frame["actorID"]) | set(frame["objectID"])
+            }
+            if preprocessed_files or official_cases:
+                labels = labels_by_scenario[scenario] & entities
             else:
-                source_type = "PRINCIPAL_LOCAL"
+                source_labels = {
+                    normalize_atlas_value(value) for value in labels_by_scenario[scenario]
+                }
+                labels = {
+                    entity for entity in entities
+                    if any(label and label in entity for label in source_labels)
+                }
+                frame["matched_labels"] = [
+                    json.dumps(sorted({
+                        label
+                        for label in source_labels
+                        if label and (
+                            label in normalize_atlas_value(row.actorID)
+                            or label in normalize_atlas_value(row.objectID)
+                        )
+                    }))
+                    for row in frame.itertuples(index=False)
+                ]
+                frame["label_source"] = "indexed_scenario_malicious_labels.txt"
+                frame["malicious_event"] = frame["matched_labels"].ne("[]")
+            if not labels:
+                raise RuntimeError(
+                    f"ATLAS scenario {scenario} has no exact malicious-label/entity intersection"
+                )
+            self.scenario_labels[scenario] = labels
+            self.all_labels.extend(sorted(labels))
+        self.all_labels = sorted(set(self.all_labels))
+        self.malicious = pd.concat(
+            [self.event_tables[scenario] for scenario in self.atlas_scenarios],
+            ignore_index=True,
+        )
+        self.begin = self.malicious.iloc[0:0].copy()
 
-            if target in domain_name_set:
-                target_type = "NETFLOW_OBJECT"
-            elif target in ip_set:
-                target_type = "NETFLOW_OBJECT"
-            elif target in connection_set:
-                target_type = "NETFLOW_OBJECT"
-            elif target in session_set:
-                target_type = "NETFLOW_OBJECT"
-            elif target in web_object_set:
-                target_type = "NetFlowObject"
-            elif target in subject2pro:
-                target_type = "SUBJECT_PROCESS"
-            elif target in file2pro:
-                target_type = "FILE_OBJECT_BLOCK"
-            else:
-                target_type = "PRINCIPAL_LOCAL"
+    @staticmethod
+    def _matches_label(node_id: str, labels: set[str]) -> bool:
+        return normalize_atlas_value(node_id) in labels
 
-            edges.append((source, source_type, target, target_type, edge_type, int(ts)))
+    def create_snapshots_from_graph(self, df, is_malicious):
+        if df is None or len(df) == 0:
+            return []
+        snapshots = []
+        for (scenario, host), group in df.groupby(
+            ["_atlas_scenario", "_atlas_host"], sort=True,
+        ):
+            group = group.copy()
+            group["timestamp_seconds"] = _timestamp_seconds(
+                group["timestamp"], group["timestamp_unit"],
+            )
+            group = group.dropna(subset=["timestamp_seconds"])
+            group["window_id"] = np.floor(group["timestamp_seconds"] / 60.0).astype(np.int64)
+            labels = self.scenario_labels.get(str(scenario), set())
+            for window, chunk in group.groupby("window_id", sort=True):
+                chunk = chunk.sort_values(["timestamp_seconds", "event_id"], kind="stable").copy()
+                chunk["event_order"] = np.arange(len(chunk), dtype=np.int64)
+                graph = ig.Graph(directed=True)
+                node_rows: dict[str, list] = {}
+                for row in chunk.itertuples(index=False):
+                    node_rows.setdefault(str(row.actorID), []).append((row, "actor", row.actor_type))
+                    node_rows.setdefault(str(row.objectID), []).append((row, "object", row.object))
+                for node_id, rows in node_rows.items():
+                    row, role, entity_type = rows[0]
+                    node_matched_labels = set()
+                    label_sources = set()
+                    for semantic_row, _semantic_role, _semantic_type in rows:
+                        try:
+                            matched = json.loads(str(getattr(semantic_row, "matched_labels", "[]") or "[]"))
+                        except json.JSONDecodeError:
+                            matched = []
+                        node_matched_labels.update(
+                            label for label in matched
+                            if normalize_atlas_value(label) in normalize_atlas_value(node_id)
+                        )
+                        source = str(getattr(semantic_row, "label_source", "") or "")
+                        if source:
+                            label_sources.add(source)
+                    semantic_events = []
+                    for semantic_row, semantic_role, _semantic_type in rows:
+                        semantic_events.append({
+                            "event_id": str(semantic_row.event_id),
+                            "event_order": int(getattr(semantic_row, "event_order", -1)),
+                            "role": semantic_role,
+                            "action": str(semantic_row.action),
+                            "command": str(getattr(semantic_row, "command", "") or ""),
+                            "arguments": str(getattr(semantic_row, "arguments", "") or ""),
+                            "path": str(getattr(semantic_row, "path", "") or ""),
+                            "address": str(getattr(semantic_row, "address", "") or ""),
+                        })
+                    graph.add_vertex(
+                        name=node_id,
+                        _athena_temporal_id=f"atlas:{scenario}:{host}:{node_id}",
+                        type=str(entity_type),
+                        properties=json.dumps({
+                            "entity_type": str(entity_type),
+                            "events": semantic_events,
+                        }, ensure_ascii=False, sort_keys=True),
+                        label=int(self._matches_label(node_id, labels)),
+                        matched_labels=sorted(node_matched_labels),
+                        label_source=sorted(label_sources),
+                        frequency=len(rows),
+                        timestamp=float(chunk["timestamp_seconds"].min()),
+                    )
+                index = {str(vertex["name"]): vertex.index for vertex in graph.vs}
+                for row in chunk.itertuples(index=False):
+                    graph.add_edge(
+                        index[str(row.actorID)],
+                        index[str(row.objectID)],
+                        actions=str(row.action),
+                        timestamp=float(row.timestamp_seconds),
+                        event_id=str(row.event_id),
+                        event_order=int(row.event_order),
+                        command=str(getattr(row, "command", "") or ""),
+                        arguments=str(getattr(row, "arguments", "") or ""),
+                        path=str(getattr(row, "path", "") or ""),
+                        address=str(getattr(row, "address", "") or ""),
+                        malicious_event=bool(getattr(row, "malicious_event", False)),
+                        matched_labels=str(getattr(row, "matched_labels", "[]") or "[]"),
+                        label_source=str(getattr(row, "label_source", "") or ""),
+                    )
+                graph["atlas_scenario"] = str(scenario)
+                graph["source_scene"] = str(scenario)
+                graph["atlas_host"] = str(host)
+                graph["host_id"] = str(host)
+                graph["host_id_source"] = "atlas_case_or_indexed_filename"
+                graph["window_start"] = float(window) * 60.0
+                snapshots.append(graph)
+        return snapshots
 
-    return pd.DataFrame(edges, columns=["actorID", "actor_type", "objectID", "object", "action", "timestamp"])
+    def build_graph(self, gid=None):
+        self.snapshots = []
+        self.snapshot_scenarios = []
+        self.snapshot_hosts = []
+        for scenario in self.atlas_scenarios:
+            for graph in self.create_snapshots_from_graph(self.event_tables[scenario], True):
+                self.snapshots.append(graph)
+                self.snapshot_scenarios.append(str(graph["atlas_scenario"]))
+                self.snapshot_hosts.append(str(graph["atlas_host"]))
+        self.benign_idx_start = 0 if self.snapshots else -1
+        self.benign_idx_end = len(self.snapshots) - 1
+        self.malicious_idx_start = 0 if self.snapshots else -1
+        self.malicious_idx_end = len(self.snapshots) - 1
 
 
-
-def extract_properties(node_id, netobj2pro, subject2pro, file2pro):
-    if node_id in netobj2pro:
-        return netobj2pro[node_id]
-    elif node_id in file2pro:
-        return file2pro[node_id]
-    elif node_id in subject2pro:
-        return subject2pro[node_id]
-    else:
-        return node_id
+__all__ = [
+    "ATLASHandler",
+    "ATLAS_FOLDS",
+    "ATLAS_SINGLE_FOLDS",
+    "ATLAS_MULTI_FOLDS",
+    "atlas_scenario_from_path",
+    "atlas_host_from_path",
+]

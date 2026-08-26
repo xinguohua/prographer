@@ -1,0 +1,114 @@
+{
+  "aggregate_sha256": "69c75c6eb4864f46264757d86200ad669f046deb7deca6526d70f7c1dcd8ca04",
+  "annotation_count": 6,
+  "annotation_status": "final_high_confidence",
+  "attack_taxonomy": {
+    "path": "data/attack_knowledge/mitre_attack/technique_to_tactic.json",
+    "sha256": "6658c7d3fb66b72aa19c6377c902de4a29dcfd77e3e942d4996a0a21f3e9f482"
+  },
+  "converter": {
+    "path": "scripts/import_e5_attack_annotations.py",
+    "sha256": "6d13a8c8bf6452703675ea21947b572410a221bc3d6bf87c71e30e0c6ed11392"
+  },
+  "coverage_policy": "six reviewed entity labels anchored to exact events; incomplete scenes are not assigned scene-wide techniques",
+  "dataset": "darpa_e5",
+  "exact_attack_scene_count": 4,
+  "five_directions_in_paper_profile": false,
+  "incomplete_attack_scene_count": 4,
+  "input_registry": {
+    "rows": 6,
+    "sha256": "ee598bfe190aaf34c4162be87ba9909439e72f52c08a445d1c434651b6b4417f"
+  },
+  "official_report": {
+    "commit": "32602734bc9f896be5fc0f03f0a185c967cd6624",
+    "path": "Ground_Truth/TA51_Final_report_E5.pdf",
+    "repository": "https://github.com/ubc-provenance/PIDSMaker.git",
+    "sha256": "aa12f7b93399159491f90fe036a88f1250c451809f686950e55edc0ee6a25d3b"
+  },
+  "official_shards": {
+    "ta1-cadets-1-e5-official-2.bin.116.gz": "cf2a45b7d4db0d3f2efb2e691ec6693aa2a1666506211df0b13818b995d08933",
+    "ta1-clearscope-1-e5-official-1.bin.33.gz": "386d46a9b525a65f953ee13fc30446cbef718cdbf6344b72e3b68837a601c56b",
+    "ta1-theia-1-e5-official-2.bin.30.gz": "f39a4dca3730309c9b390b3f71cd608baf7133333d1e5e867ea24669088e452c",
+    "ta1-trace-2-e5-official-1.bin.129.gz": "5ab20801c7806c053ed84d82c96e5967e3981354995ec80530412adf856e7d8c"
+  },
+  "outputs": {
+    "audit.md": "6f629fdb2c5e6056f0ba5e9d876264d1f16e1a6447ad47af913c655781c5ee68",
+    "mapping_records.jsonl": "0fa51beb47189d61ee10f4bfd5d21a92dab4c016618cbc83c0e41e6f125e4739",
+    "source_linked_annotations.jsonl": "a719f82f9a7969d8d2c6dc51dac94695afe1cecc8631da1decd5af04db1c1dde",
+    "source_records.jsonl": "3f60fc3ceb457557e74dbfcc9550133259121c8451f2c4194d4fd179c84439f3"
+  },
+  "paper_platforms": [
+    "cadets5",
+    "clearscope5",
+    "theia5",
+    "trace5"
+  ],
+  "paper_profile_pidsmaker_attack_sources": 8,
+  "raw_occurrence_counter": {
+    "sha256": "2cc229e1286f417a5cf6218430ea1bcfcbb00aed37c0b57c75dc6717f350fa27"
+  },
+  "scene_audit": [
+    {
+      "attack_id": "theia_firefox_drakon_0515",
+      "exact_event_annotation_count": 1,
+      "platform": "theia5",
+      "status": "exact"
+    },
+    {
+      "attack_id": "cadets_nginx_drakon_0516",
+      "exact_event_annotation_count": 0,
+      "platform": "cadets5",
+      "reason": "The report and available shard evidence do not uniquely distinguish every stage/C2 flow on both hosts.",
+      "status": "incomplete"
+    },
+    {
+      "attack_id": "cadets_nginx_drakon_0517",
+      "exact_event_annotation_count": 3,
+      "platform": "cadets5",
+      "status": "exact"
+    },
+    {
+      "attack_id": "trace_firefox_drakon_0514",
+      "exact_event_annotation_count": 1,
+      "platform": "trace5",
+      "status": "exact"
+    },
+    {
+      "attack_id": "clearscope_appstarter_0515",
+      "exact_event_annotation_count": 0,
+      "platform": "clearscope5",
+      "reason": "No unique event/anchor/report join is released.",
+      "status": "incomplete"
+    },
+    {
+      "attack_id": "clearscope_firefox_0517",
+      "exact_event_annotation_count": 0,
+      "platform": "clearscope5",
+      "reason": "No unique event/anchor/report join is released.",
+      "status": "incomplete"
+    },
+    {
+      "attack_id": "clearscope_lockwatch_0517",
+      "exact_event_annotation_count": 0,
+      "platform": "clearscope5",
+      "reason": "No unique event/anchor/report join is released.",
+      "status": "incomplete"
+    },
+    {
+      "attack_id": "clearscope_tester_0517",
+      "exact_event_annotation_count": 1,
+      "platform": "clearscope5",
+      "status": "exact"
+    }
+  ],
+  "schema": "athena.darpa_e5.final_attack_annotations.v1",
+  "source_registry_generator": {
+    "sha256": "3e530465a7093890c121f398dbaa1de9183aedab313328e730898b69a3aac6bc"
+  },
+  "technique_counts": {
+    "T1071.001": 3,
+    "T1095": 1,
+    "T1105": 1,
+    "T1190": 1
+  }
+}

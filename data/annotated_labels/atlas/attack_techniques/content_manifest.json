@@ -1,0 +1,76 @@
+{
+  "aggregate_sha256": "1ecb7f036d5486d79cd9dc9846c9a4aa1ad451563b0e59045bb953a72d65effd",
+  "annotation_count": 10,
+  "annotation_status": "final_high_confidence",
+  "attack_taxonomy": {
+    "path": "data/attack_knowledge/mitre_attack/technique_to_tactic.json",
+    "sha256": "6658c7d3fb66b72aa19c6377c902de4a29dcfd77e3e942d4996a0a21f3e9f482"
+  },
+  "converter": {
+    "path": "scripts/import_atlas_v1_attack_annotations.py",
+    "sha256": "66b1e0984497a1fbff7d4903c77cf9c4c1ae5480d4aeb0990bd640cb2a20fb1f"
+  },
+  "dataset": "atlas",
+  "endpoint_registry": {
+    "path": "../source_linked/atlas_v1_source_link_endpoints.jsonl",
+    "record_count": 228,
+    "sha256": "7831634d170b503f35c3d74d7e4328ff12951c7dec281277a022253edd85ad4c"
+  },
+  "outputs": {
+    "mapping_records.jsonl": "d9aeea522c1f82efee2664bc07b4c9afcd42f07ba449d2a7eb4a4211dfc94eb9",
+    "source_linked_annotations.jsonl": "6b61c94e9c9f242965eb7b12d3c1c7dc9898a0890fa7d82ef8d2fd5bb187fb7f",
+    "source_records.jsonl": "9e04051f2c7804011f7faf6161177c3046fa3548ba1ee08070301924906a29f6"
+  },
+  "paper_source": {
+    "reference": "Table 2, PDF page 12, proceedings page 3015",
+    "sha256": "561e298c63cc1f30384eb1e07ee63911743f30214a5601c9f4a4eeb5fc5f199c",
+    "url": "https://www.usenix.org/system/files/sec21-alsaheel.pdf"
+  },
+  "review_scope": {
+    "included": [
+      "PL URL/web-object endpoints",
+      "PA downloaded attachment endpoints"
+    ],
+    "m5_t1041": "not assigned because the endpoint registry has no exact data-transfer event",
+    "not_assigned_from_scene_feature_alone": [
+      "INJ",
+      "IG",
+      "BD",
+      "LM",
+      "DE"
+    ],
+    "pa_occurrence_counts": {
+      "M4": {
+        "all": 82,
+        "browser_delivery_candidates": 4
+      },
+      "M6": {
+        "all": 79,
+        "browser_delivery_candidates": 3
+      },
+      "S3": {
+        "all": 96,
+        "browser_delivery_candidates": 3
+      },
+      "S4": {
+        "all": 133,
+        "browser_delivery_candidates": 3
+      }
+    }
+  },
+  "schema": "athena.atlas_v1.final_attack_annotations.v1",
+  "snapshot_coordinates": {
+    "audit_global_family_base": {
+      "M": 0,
+      "S": 1227
+    },
+    "mapping_snapshot": "ATLAS runtime family-local index",
+    "source_global_snapshot": "ten-scenario source-audit index"
+  },
+  "source_commit": "e46096d1947e4f059e73a0ac2b9a9707812fd4bc",
+  "source_repository": "https://github.com/purseclab/ATLAS.git",
+  "technique_counts": {
+    "T1566.001": 4,
+    "T1566.002": 6
+  }
+}

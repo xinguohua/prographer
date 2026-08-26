@@ -7,7 +7,7 @@ import re
 resource_types = {ObjectType.NETFLOW_OBJECT.value, ObjectType.FILE_OBJECT_BLOCK.value, ObjectType.MemoryObject.value}
 
 def create_process_graph():
-    """1process's hastowardgraph"""
+    """Create the small directed example graph used by local diagnostics."""
     G = ig.Graph(directed=True)
 
     # processes = [
@@ -48,14 +48,14 @@ def create_process_graph():
     #     ("Process3", "Process7"),  # basic
     # ]
     edges = [
-        ("Process0", "Socket"),  # Process0 connectto Socket
-        ("Process1", "Socket"),  # Process1 via Socket communicate
-        ("Process4", "Process1"),  # Process1 connect Process4
-        ("Process4", "Process2"),  # Process2 connect Process4
-        ("File", "Process3"),  # Process3  File
-        ("File", "Process2"),  # File impact Process2
-        ("Process0", "File"),  # process0 file (sourcedependency) 
-        ("File", "Process1"),  # process1 file (sourcedependency) 
+        ("Process0", "Socket"),
+        ("Process1", "Socket"),
+        ("Process4", "Process1"),
+        ("Process4", "Process2"),
+        ("File", "Process3"),
+        ("File", "Process2"),
+        ("Process0", "File"),
+        ("File", "Process1"),
     ]
     G.add_edges(edges)
 
@@ -69,11 +69,7 @@ def set_weight(G):
 
 
 def is_resource_dependent(G, source, target):
-    """
-    break source and target isviasourcebecomewithouttowardcycle, returncycle's size. 
-    - if source to target existspath, pathupcontains resource node, thenissourcedependency. 
-    - return (isexistssourcedependency, sourcedependencycycle's minsize). 
-    """
+    """Return whether an undirected path crosses a resource and its minimum size."""
     source_idx = G. vs .find(name=source).index
     target_idx = G. vs .find(name=target).index
 
@@ -91,15 +87,11 @@ def is_resource_dependent(G, source, target):
     if has_resource_dependency:
         return True, min_loop_size
     else:
-        return False, -1  # nosourcedependency, cyclesizereturn -1
+        return False, -1
 
 
 def set_resource_weights(G, W_base=1.0):
-    """
-    statisticeachsourcenodeprocess, according toclass's processcountintegeredgeweight. 
-    - processclassisaccording towithouttowardgraph's 's . 
-    - connectaccording toclass's processcountweight, withoutadditionaltraverseeachedgetwotime. 
-    """
+    """Weight process/resource edges by related accessing-process clusters."""
     resource_access = {}
 
     for v in G. vs :
@@ -111,9 +103,9 @@ def set_resource_weights(G, W_base=1.0):
         target = G. vs [edge.target]["name"]
 
         if G. vs [edge.source]["type"] == ObjectType.SUBJECT_PROCESS.value and G. vs [edge.target]["type"] in resource_types:
-            resource_access[target].append(source)  # source source process
+            resource_access[target].append(source)
         elif G. vs [edge.source]["type"] in resource_types and G. vs [edge.target]["type"] == ObjectType.SUBJECT_PROCESS.value:
-            resource_access[source].append(target)  # source target process
+            resource_access[source].append(target)
 
     G_undirected = G.as_undirected()
 
@@ -132,7 +124,7 @@ def set_resource_weights(G, W_base=1.0):
         if total_weight > 0:
             process_weights = {proc: weight / total_weight for proc, weight in process_weights.items()}
 
-        # **connecttraverse resource 's edge, weight**
+        # Apply the normalized cluster weight to each incident access edge.
         for edge in G.es:
             source = G. vs [edge.source]["name"]
             target = G. vs [edge.target]["name"]
@@ -143,11 +135,7 @@ def set_resource_weights(G, W_base=1.0):
 
 
 def set_process_weights(G, W_base=1.0, delta_factor=5):
-    """
-    process's weight (based onprocessnodedimension) ,  vs toedge: 
-    - first eachprocess's  totalweight
-    - after  vs normalize, ensureeachentryedge's weightreverseprocess's . 
-    """
+    """Assign and normalize outgoing process-edge weights."""
     process_weights = {}
     total_weights = {}
 
@@ -182,24 +170,14 @@ def set_process_weights(G, W_base=1.0, delta_factor=5):
         target_name = G. vs [edge.target]["name"]
 
         if source_name in process_weights and target_name in process_weights[source_name]:
-            if total_weights[source_name] > 0:  # divideby 0
+            if total_weights[source_name] > 0:
                 edge["weight"] = process_weights[source_name][target_name] / total_weights[source_name]
             else:
-                edge["weight"] = 0  # iftotalweightis 0, thenweightis 0
+                edge["weight"] = 0
 
 
 def get_connected_processes(G_undirected, start_proc, all_procs):
-    """
-    takeand start_proc can's hasprocess (become1class) . 
-
-    parameter:
-    - G_undirected: withouttowardgraph
-    - start_proc: needsfind's startprocess
-    - all_procs: sourceconnect's hasprocesslist
-
-    return:
-    - set(can's processset)
-    """
+    """Return candidate processes reachable from ``start_proc``."""
     try:
         start_idx = G_undirected. vs .find(name=start_proc).index
         reachable_idxs = G_undirected.subcomponent(start_idx)
@@ -211,11 +189,7 @@ def get_connected_processes(G_undirected, start_proc, all_procs):
 
 
 def is_related(G, proc1, proc2):
-    """
-    breaktwoprocessishas (withouttowardpath) : 
-    - if proc1 to proc2 existspath (withouttowardpath) , thenisitisprocess. 
-    - otherwise, isitiswithoutprocess. 
-    """
+    """Return whether two processes share an undirected path."""
     try:
         source_idx = G. vs .find(name=proc1).index
         target_idx = G. vs .find(name=proc2).index
@@ -230,7 +204,7 @@ def is_related(G, proc1, proc2):
 
 
 def print_communities(communities):
-    """printpartitionresult"""
+    """Print a deterministic summary of the detected communities."""
     for cid, nodes in communities.items():
         print(f"Community {cid}: {nodes}")
 
@@ -239,7 +213,7 @@ def print_communities(communities):
 def detect_communities(G):
     set_weight(G)
 
-    """use Modularity Method row Leiden detect"""
+    # Leiden modularity partition over the weighted projection.
     # partition = la.find_partition(G, la.CPMVertexPartition, weights='weight', resolution_parameter=0.05)
     partition = la.find_partition(G, la.ModularityVertexPartition, weights='weight')
 
@@ -337,7 +311,7 @@ def detect_communities_with_max(G, threshold=500, max_depth=2, min_size=2):
     all_names = G. vs ["name"]
     groups = _leiden_split(all_names, depth=0)
 
-    # filteronlyhas 1 node's  (orsmallin min_size 's ) 
+    # Drop groups smaller than the configured minimum.
     groups = [g for g in groups if len(g) >= min_size]
 
     communities = {i: grp for i, grp in enumerate(groups)}
@@ -351,7 +325,7 @@ def detect_communities_with_max(G, threshold=500, max_depth=2, min_size=2):
 
 def detect_communities_with_id(G):
     set_weight(G)
-    """use Modularity Method row Leiden detect"""
+    # Leiden modularity partition that returns vertex objects.
     # partition = la.find_partition(G, la.CPMVertexPartition, weights='weight', resolution_parameter=0.05)
     partition = la.find_partition(G, la.ModularityVertexPartition, weights='weight')
     communities = {i: [] for i in set(partition.membership)}
@@ -362,14 +336,12 @@ def detect_communities_with_id(G):
 
 
 def set_default_weight(G, weight=1.0):
-    """
-    setgraphinhasedge's weightis (default 1.0) . 
-    """
+    """Assign the same default weight to every edge."""
     G.es["weight"] = [weight] * len(G.es)
 
 
 def print_graph_info(G):
-    """printgraph's andedge's weight"""
+    """Print every directed edge and its weight."""
     print("Edges with weights:")
     for edge in G.es:
         source = G. vs [edge.source]["name"]
@@ -379,22 +351,7 @@ def print_graph_info(G):
 
 
 def get_all_paths(G, source_idx, target_idx, path=None, visited=None, max_depth=10, max_steps=1000, step_counter=[0]):
-    """
-    userecursivemannerfindhasfrom source_idx to target_idx 's path, maxrecursivedegreeandtotaltimenumber. 
-
-    parameter: 
-    - G: igraph graphobject
-    - source_idx: startnodeindex
-    - target_idx: targetnodeindex
-    - path: whenbeforepath (recursiveinternaluse) 
-    - visited: whenbefore's nodeset (stopcycle) 
-    - max_depth: maxpathdegree
-    - max_steps: maxrecursivetrytimenumber (stopstack) 
-    - step_counter: fornumberrecursivetimenumber's list (notcanclass) 
-
-    return: 
-    - haspath's list, eachpathis1nodeindexlist
-    """
+    """Enumerate simple paths subject to depth and recursive-step limits."""
     if path is None:
         path = []
     if visited is None:
@@ -430,16 +387,7 @@ def get_all_paths(G, source_idx, target_idx, path=None, visited=None, max_depth=
 
 
 def find_ancestors(G, proc):
-    """
-    findprocess's hasfirst  (hastowardup's process) . 
-
-    parameter:
-    - G: igraph hastowardgraph
-    - proc: processname
-
-    return:
-    - ancestors: first processset
-    """
+    """Return all predecessor names reachable from a process vertex."""
     try:
         proc_idx = G. vs .find(name=proc).index
     except ValueError:
@@ -459,22 +407,13 @@ def find_ancestors(G, proc):
     return ancestors
 
 def classify_processes_by_common_ancestor(G, accessing_processes):
-    """
-    according tofirst process, tosamesource's processrowclass. 
-
-    parameter:
-    - G: igraph hastowardgraph
-    - accessing_processes: somesource's processset
-
-    return:
-    - process_clusters: processclass's list, eachclassis1set
-    """
+    """Group resource-accessing processes that share an ancestor."""
     process_clusters = []
     visited = set()
 
     ancestor_map = {proc: find_ancestors(G, proc) for proc in accessing_processes}
 
-    # **traverse accessing_processes**
+    # Traverse each unassigned accessing process once.
     for proc in accessing_processes:
         if proc in visited:
             continue
@@ -487,7 +426,6 @@ def classify_processes_by_common_ancestor(G, accessing_processes):
         visited.update(cluster)
 
     return process_clusters
-
 
 
 

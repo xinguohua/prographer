@@ -131,8 +131,9 @@ def _load_mitre_tactic_json() -> Dict[str, str]:
     """Load ``technique_to_tactic.json`` (built from the MITRE STIX bundle).
 
     The JSON stores ``Dict[tech_id, List[tactic]]`` because some techniques
-    cross multiple tactics; we pick the first listed (MITRE primary) and
-    fold sub-techniques to their parent.
+    span multiple tactics. This compatibility helper selects the first
+    deterministically stored tactic and folds sub-techniques to their parent;
+    callers that require every valid tactic use :func:`load_tech_to_tactics`.
     """
     mapping: Dict[str, str] = {}
     if not _MITRE_TACTIC_JSON.exists():
@@ -153,14 +154,12 @@ def _load_mitre_tactic_json() -> Dict[str, str]:
 
 
 def load_tech_to_tactic(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    """Return a comprehensive technique → tactic mapping.
+    """Return the single-tactic compatibility mapping used by legacy callers.
 
     Precedence (later overrides earlier):
-    1. Hardcoded :data:`DEFAULT_TECH_TO_TACTIC` (covers the techniques in
-       the curated attack-sequence library + manually verified scenes).
-    2. MITRE STIX-derived ``technique_to_tactic.json`` (full ATT&CK
-       enterprise matrix, 600+ techniques).
-    3. Per-scene ``attack_techniques/*.json`` ground-truth annotations.
+    1. Hardcoded :data:`DEFAULT_TECH_TO_TACTIC` compatibility entries.
+    2. The released MITRE STIX-derived ``technique_to_tactic.json``.
+    3. Legacy per-scene ``attack_techniques/*.json`` reference annotations.
     4. ``extra`` overrides passed by the caller.
     """
     mapping = dict(DEFAULT_TECH_TO_TACTIC)
@@ -185,6 +184,45 @@ def load_tech_to_tactic(extra: Optional[Dict[str, str]] = None) -> Dict[str, str
                     mapping[tech] = tactic
     if extra:
         mapping.update(extra)
+    return mapping
+
+
+def load_tech_to_tactics() -> Dict[str, List[str]]:
+    """Return every associated tactic for each parent technique."""
+    mapping: Dict[str, List[str]] = {
+        technique: [tactic] for technique, tactic in DEFAULT_TECH_TO_TACTIC.items()
+    }
+    if _MITRE_TACTIC_JSON.exists():
+        try:
+            with _MITRE_TACTIC_JSON.open("r", encoding="utf-8") as stream:
+                payload = json.load(stream)
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        for raw_id, raw_tactics in payload.items():
+            technique = normalize_tech_id(str(raw_id))
+            tactics = raw_tactics if isinstance(raw_tactics, list) else [raw_tactics]
+            clean = [str(tactic).strip() for tactic in tactics if str(tactic).strip()]
+            if technique and clean:
+                mapping.setdefault(technique, [])
+                for tactic in clean:
+                    if tactic not in mapping[technique]:
+                        mapping[technique].append(tactic)
+    for dataset_dir in (REPO_ROOT / "data" / "annotated_labels").glob("*/attack_techniques"):
+        for json_path in dataset_dir.glob("*.json"):
+            try:
+                payload = json.loads(json_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            entities = payload.get("entities", {}) if isinstance(payload, dict) else {}
+            for record in entities.values() if isinstance(entities, dict) else []:
+                if not isinstance(record, dict):
+                    continue
+                technique = normalize_tech_id(str(record.get("technique", "")))
+                tactic = str(record.get("tactic", "")).strip()
+                if technique and tactic:
+                    mapping.setdefault(technique, [])
+                    if tactic not in mapping[technique]:
+                        mapping[technique].append(tactic)
     return mapping
 
 
@@ -230,6 +268,45 @@ def load_tactic_sequence_library(
     return out
 
 
+def load_tactic_sequence_records(
+    technique_seq_path: Optional[str] = None,
+    mapping: Optional[Dict[str, str]] = None,
+) -> List[Dict]:
+    """Load record-local ordered tactics without losing provenance.
+
+    AttackSeqBench's grouped records are the authoritative source for tactic
+    order.  A record-local ``technique_tactics`` mapping is accepted only as a
+    fallback for an older source-linked export that does not already carry a
+    ``tactics`` list.  The global primary-tactic map is never used to rewrite
+    an official record.
+    """
+    from .global_alignment import load_technique_sequence_records
+    records = load_technique_sequence_records(technique_seq_path)
+    output = []
+    for record in records:
+        raw_tactics = record.get("tactics")
+        if isinstance(raw_tactics, list) and raw_tactics:
+            tactics = [str(value).strip() for value in raw_tactics if str(value).strip()]
+        else:
+            local = record.get("technique_tactics")
+            if not isinstance(local, list) or not local:
+                raise ValueError(
+                    f"attack-sequence record {record['source_id']} lacks ordered tactics"
+                )
+            tactics = []
+            for item in local:
+                if not isinstance(item, dict) or not str(item.get("tactic", "")).strip():
+                    raise ValueError(
+                        f"attack-sequence record {record['source_id']} has invalid technique_tactics"
+                    )
+                tactic = str(item["tactic"]).strip()
+                if not tactics or tactics[-1] != tactic:
+                    tactics.append(tactic)
+        if tactics:
+            output.append({**record, "tactics": tactics})
+    return output
+
+
 def best_tactic_match(
     predicted_tactics: List[str],
     tactic_library: Optional[List[List[str]]] = None,
@@ -247,7 +324,9 @@ __all__ = [
     "DEFAULT_TECH_TO_TACTIC",
     "normalize_tech_id",
     "load_tech_to_tactic",
+    "load_tech_to_tactics",
     "techniques_to_tactics",
     "load_tactic_sequence_library",
+    "load_tactic_sequence_records",
     "best_tactic_match",
 ]

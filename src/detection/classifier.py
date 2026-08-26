@@ -1,19 +1,11 @@
-"""
-MLP classifier - paper Section IV-B.4
+"""Two-layer node classifier from Proof Section IV-D3.
 
-two MLP + cross-entropy loss, in's snapshot embeddinguptrain2classifier. 
-traintimeneedsbenignandmalicioussnapshot's embeddingandlabel. 
-
-usage:
-    classify = MLPClassify(gid="bench")
-    classify.train(benign_embeddings, malicious_embeddings, mal_labels)
-    pred_labels, details = classify.predict(test_embeddings)
+The classifier is trained with cross-entropy on benign and malicious node
+embeddings produced by the frozen ATHENA encoder.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Dict
-import os
-import pickle
 
 import numpy as np
 import torch
@@ -26,14 +18,14 @@ from ._classifier_base import BaseClassify
 
 
 class TwoLayerMLP(nn.Module):
-    """two MLP: input -> hidden -> ReLU -> dropout -> output(2)"""
+    """Input -> hidden -> ReLU -> dropout -> two-class logits."""
     def __init__(self, input_dim: int, hidden_dim: int = 128, dropout: float = 0.3):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(p=dropout),
-            nn.Linear(hidden_dim, 2),  # 2class: [benign, malicious]
+            nn.Linear(hidden_dim, 2),  # [benign, malicious]
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -47,18 +39,11 @@ class MLPConfig:
     lr: float = 1e-3
     num_epochs: int = 3
     batch_size: int = 64
-    model_save_path: str = "mlp_classifier.pth"
-    meta_save_path: str = "mlp_meta.pkl"
+    seed: int = 42
 
 
 class MLPClassify(BaseClassify):
-    """
-    paper's two MLP classifier (has, cross-entropy loss) . 
-
-    and TopK 's : 
-    - TopK without: notneedslabel, onlydegreetake Top-K
-    - MLP has: needsbenign+maliciousembeddingandlabel, train2classifier
-    """
+    """Train and apply the Proof Section IV-D3 binary MLP head."""
 
     def __init__(self, cfg: Optional[MLPConfig] = None, gid: Optional[str] = None, **kwargs):
         super().__init__(gid=gid)
@@ -66,10 +51,6 @@ class MLPClassify(BaseClassify):
         for k, v in kwargs.items():
             if hasattr(self.cfg, k):
                 setattr(self.cfg, k, v)
-
-        if gid:
-            self.cfg.model_save_path = self.with_gid_suffix(self.cfg.model_save_path)
-            self.cfg.meta_save_path = self.with_gid_suffix(self.cfg.meta_save_path)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.input_dim: Optional[int] = None
@@ -88,23 +69,28 @@ class MLPClassify(BaseClassify):
               malicious_embeddings: np.ndarray = None,
               malicious_labels: np.ndarray = None,
               **kwargs) -> "MLPClassify":
-        """
-        train MLP classifier. 
+        """Train the binary MLP classifier.
 
         Args:
-            benign_embeddings: benignsnapshot embedding (N_b, D), labelallis 0
-            malicious_embeddings: malicioussnapshot embedding (N_m, D)
-            malicious_labels: malicioussnapshotTruelabel (N_m,), 1=malicious, 0=benign
-                ifnotthenallismalicious (label=1) 
+            benign_embeddings: ``(N_b, D)`` embeddings labelled benign.
+            malicious_embeddings: ``(N_m, D)`` embeddings from attack graphs.
+            malicious_labels: Optional binary labels for the attack-graph
+                embeddings. If omitted, every row is labelled malicious.
         """
         X_b = np.asarray(benign_embeddings, dtype=np.float32)
+        if X_b.ndim != 2 or X_b.shape[0] == 0:
+            raise ValueError("MLP training requires at least one benign embedding")
         self.input_dim = X_b.shape[1]
 
-        # buildtrain: benign(label=0) + maliciousinterval(label=0or1)
+        # Combine benign labels with the supplied attack-graph labels.
         labels_b = np.zeros(X_b.shape[0], dtype=np.int64)
 
         if malicious_embeddings is not None:
             X_m = np.asarray(malicious_embeddings, dtype=np.float32)
+            if X_m.ndim != 2 or X_m.shape[0] == 0:
+                raise ValueError("MLP training requires at least one malicious embedding")
+            if X_m.shape[1] != X_b.shape[1]:
+                raise ValueError("benign and malicious embedding dimensions differ")
             if malicious_labels is not None:
                 labels_m = np.asarray(malicious_labels, dtype=np.int64)
             else:
@@ -113,13 +99,13 @@ class MLPClassify(BaseClassify):
             X_all = np.concatenate([X_b, X_m], axis=0)
             y_all = np.concatenate([labels_b, labels_m])
         else:
-            print("[MLP] warning: withoutmalicious sample, classifiercancanwithouthastrain")
-            X_all = X_b
-            y_all = labels_b
+            raise ValueError("MLP training requires malicious embeddings")
+
+        if set(np.unique(y_all).tolist()) != {0, 1}:
+            raise ValueError("MLP training requires both benign and malicious labels")
 
         self.model = self._build_model()
         self._train_loop(X_all, labels=y_all)
-        self._save()
         return self
 
     def _train_loop(self, embeddings, labels=None, **kwargs):
@@ -127,7 +113,10 @@ class MLPClassify(BaseClassify):
         y = torch.from_numpy(np.asarray(labels, dtype=np.int64)).to(self.device)
 
         dataset = TensorDataset(X, y)
-        loader = DataLoader(dataset, batch_size=self.cfg.batch_size, shuffle=True)
+        generator = torch.Generator().manual_seed(int(self.cfg.seed))
+        loader = DataLoader(
+            dataset, batch_size=self.cfg.batch_size, shuffle=True, generator=generator,
+        )
 
         optimizer = optim.Adam(self.model.parameters(), lr=self.cfg.lr)
 
@@ -166,8 +155,7 @@ class MLPClassify(BaseClassify):
         return {}
 
     def predict(self, embeddings: np.ndarray, **kwargs) -> Tuple[np.ndarray, Dict]:
-        """
-        snapshotlabel. 
+        """Predict a binary label for each node embedding.
 
         Returns:
             (pred_labels, details):
@@ -175,7 +163,7 @@ class MLPClassify(BaseClassify):
             - details: {idx: {"prob": float, "logits": array}}
         """
         if self.model is None:
-            self.load()
+            raise RuntimeError("MLP model is not initialized; train it or load an explicit run checkpoint")
 
         X = torch.from_numpy(np.asarray(embeddings, dtype=np.float32)).to(self.device)
 
@@ -198,39 +186,6 @@ class MLPClassify(BaseClassify):
                 }
 
         n_mal = int(pred_labels.sum())
-        print(f"[MLP] : {len(pred_labels)} snapshot, {n_mal} malicious")
+        print(f"[MLP] predictions={len(pred_labels)} malicious={n_mal}")
 
         return pred_labels, details
-
-    def _save(self):
-        """savemoduloandmetadata"""
-        try:
-            torch.save(self.model.state_dict(), self.cfg.model_save_path)
-            print(f"[MLP] modulosaved: {self.cfg.model_save_path}")
-        except Exception as e:
-            print(f"[MLP] savemodulofailed: {e}")
-
-        try:
-            meta = {
-                "input_dim": self.input_dim,
-                "config": self.cfg.__dict__,
-            }
-            with open(self.cfg.meta_save_path, 'wb') as f:
-                pickle.dump(meta, f)
-        except Exception as e:
-            print(f"[MLP] savemetadatafailed: {e}")
-
-    def load(self):
-        """loadsaved's modulo"""
-        try:
-            with open(self.cfg.meta_save_path, 'rb') as f:
-                meta = pickle.load(f)
-            self.input_dim = meta["input_dim"]
-            self.model = self._build_model()
-            self.model.load_state_dict(
-                torch.load(self.cfg.model_save_path, map_location=self.device)
-            )
-            self.model.eval()
-            print(f"[MLP] moduloalreadyload: {self.cfg.model_save_path}")
-        except Exception as e:
-            print(f"[MLP] loadfailed: {e}")

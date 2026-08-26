@@ -2,35 +2,28 @@
 
 Public surface of the detection module:
 
-- :class:`GINEncoder`, :class:`TypedGINConv`, :class:`MLP` - typed 3-layer GIN.
-- :class:`TemporalPerLayer` - per-layer GRU that propagates node state across
-  time-windowed snapshots.
-- :class:`ATHENAEncoder` - orchestrates GIN + GRU + StrategyMoE inside the
+- :class:`GINEncoder`, :class:`GINConv`, :class:`MLP` - 3-layer GIN.
+- :class:`TemporalNodeEncoder` - final-GIN GRU that updates each entity once
+  per time-windowed snapshot.
+- :class:`ATHENAEncoder` - orchestrates GIN + GRU inside the
   hard-sample-weighted supervised contrastive training loop.
 - :class:`ATHENADetector` - two-layer MLP head producing per-snapshot binary
   anomaly scores.
 """
 from .gin_encoder import (
     GINEncoder,
-    TypedGINConv,
+    GINConv,
     MLP,
-    EDGE_CATEGORY,
-    NUM_EDGE_CATEGORIES,
-    classify_edge,
 )
-from .temporal_encoder import TemporalPerLayer
-from .contrastive_learning import GCCEmbedderDev as ATHENAEncoder, StrategyMoE
+from .temporal_encoder import TemporalNodeEncoder
+from .contrastive_learning import ATHENAEncoder
 from .classifier import MLPClassify as ATHENADetector
 
 __all__ = [
     "GINEncoder",
-    "TypedGINConv",
+    "GINConv",
     "MLP",
-    "EDGE_CATEGORY",
-    "NUM_EDGE_CATEGORIES",
-    "classify_edge",
-    "TemporalPerLayer",
+    "TemporalNodeEncoder",
     "ATHENAEncoder",
-    "StrategyMoE",
     "ATHENADetector",
 ]
